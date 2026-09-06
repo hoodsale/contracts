@@ -176,8 +176,7 @@ async function main() {
     console.log(`  npx hardhat run scripts/check-deployment.js --network ${network}`);
     console.log("Every *_matchesBuild line must read true before the frontend is wired; a false lens means");
     console.log("scripts/deploy-lens.js, a false registry means scripts/deploy-registry.js.");
-    console.log("Optional, only if the QuickLaunch source is meant to be public (Sourcify is the primary target,");
-    console.log("the keeper never verifies platform contracts on its own):");
+    console.log("Then verify the new QuickLaunch on Sourcify (the keeper never verifies platform contracts on its own):");
     console.log(`  ADDRESSES=${quickLaunch.target} npx hardhat run scripts/verify-contract.js --network ${network}`);
   }
 }
