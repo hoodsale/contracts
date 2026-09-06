@@ -1,0 +1,12 @@
+node_modules/
+artifacts/
+cache/
+typechain-types/
+verify-out/
+verify-state/
+deployments/localhost.json
+deployments/hardhat.json
+.env
+.env.*
+!.env.example
+.DS_Store

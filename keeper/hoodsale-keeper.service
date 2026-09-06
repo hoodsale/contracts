@@ -1,0 +1,28 @@
+[Unit]
+Description=HoodSale launch keeper (automatic launches, token delivery, reward distribution, Sourcify verification)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hoodsale
+Group=hoodsale
+WorkingDirectory=/opt/hoodsale/contracts
+EnvironmentFile=/etc/hoodsale/keeper.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/npm run keeper -- --network robinhood
+Restart=always
+RestartSec=10
+# The keeper saves its verification state on SIGINT/SIGTERM and exits
+KillSignal=SIGTERM
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hoodsale-keeper
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/opt/hoodsale/contracts
+
+[Install]
+WantedBy=multi-user.target

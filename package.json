@@ -1,0 +1,34 @@
+{
+  "name": "hoodsale-contracts",
+  "version": "1.0.0",
+  "description": "HoodSale presale launchpad contracts on Robinhood Chain",
+  "scripts": {
+    "test": "hardhat test",
+    "keeper": "hardhat run scripts/launch-keeper.js",
+    "auto-verify": "hardhat run scripts/auto-verify.js",
+    "abi": "hardhat run scripts/extract-abi.js",
+    "test:fork": "FORK_URL=${FORK_URL:-https://rpc.mainnet.chain.robinhood.com} FORK_BLOCK=${FORK_BLOCK:-$(node -e \"fetch(process.env.FORK_URL||'https://rpc.mainnet.chain.robinhood.com',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'eth_blockNumber',params:[]})}).then(r=>r.json()).then(j=>console.log(parseInt(j.result,16)-200))\")} hardhat test test/fork/robinhood-uniswap.test.js"
+  },
+  "keywords": [
+    "robinhood-chain",
+    "presale",
+    "launchpad",
+    "solidity",
+    "hardhat"
+  ],
+  "author": "HoodSale <dev@hoodsale.io>",
+  "license": "BUSL-1.1",
+  "type": "commonjs",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "hardhat": "^2.29.1"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.6.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hoodsale/contracts.git"
+  },
+  "private": true
+}
