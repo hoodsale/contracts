@@ -48,7 +48,7 @@ describe("Tokenomics registry", function () {
     const { metadataRegistry, token, alice, weth, hoodsale } = await loadFixture(fx);
     await expect(metadataRegistry.connect(alice).setTokenomics(token.target, plan)).to.be.revertedWithCustomError(metadataRegistry, "NotTokenOwner");
     await expect(metadataRegistry.setTokenomics(weth.target, plan)).to.be.revertedWithCustomError(metadataRegistry, "NotPlatformToken");
-    // HOODSALE is on the allowlist and its owner is the deployer
+    // HOODS is on the allowlist and its owner is the deployer
     await expect(metadataRegistry.setTokenomics(hoodsale.target, plan)).to.emit(metadataRegistry, "TokenomicsUpdated");
   });
 

@@ -131,7 +131,7 @@ async function main() {
   await (await treasury.setRouter(router)).wait();
   await (await treasury.setHoodsale(hoodsale.target)).wait();
 
-  // Let HOODSALE run its own presale through the platform
+  // Let HOODS run its own presale through the platform
   await (await hoodsale.setPresaleFactory(presaleFactory.target)).wait();
   await (await presaleFactory.setTokenAllowed(hoodsale.target, true)).wait();
   // Platform bot that triggers scheduled launches on behalf of the owner
@@ -146,7 +146,7 @@ async function main() {
 
   const metadataRegistry = await hre.ethers.deployContract("TokenMetadataRegistry", [tokenFactory.target]);
   await metadataRegistry.waitForDeployment();
-  // Let allowlisted platform tokens (HOODSALE) write a profile as well
+  // Let allowlisted platform tokens (HOODS) write a profile as well
   await (await metadataRegistry.setPresaleFactory(presaleFactory.target)).wait();
 
   const lens = await hre.ethers.deployContract("HoodSaleLens", [

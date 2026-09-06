@@ -29,7 +29,7 @@ describe("Security regressions", function () {
       expect(await token.balanceOf(deployer.address)).to.equal(E("1000000"));
     });
 
-    it("HOODSALE deploys against a pre-created pair", async function () {
+    it("HOODS deploys against a pre-created pair", async function () {
       const { dexFactory, weth, router, treasury, deployer, marketing } = await loadFixture(deployPlatform);
       const nonce = await ethers.provider.getTransactionCount(deployer.address);
       const predicted = ethers.getCreateAddress({ from: deployer.address, nonce: nonce + 1 });

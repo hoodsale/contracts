@@ -198,8 +198,8 @@ async function usdgFixture() {
 }
 
 /**
- * HOODSALE presale (deployer), whitelist enabled: alice 4 + bob 2 = 6 ETH, carol is not on the list.
- * Expectation: fee 0.6, liq 3.78 ETH + 3,024,000 HOODSALE (listing 800k / ETH), claim 4M / 2M.
+ * HOODS presale (deployer), whitelist enabled: alice 4 + bob 2 = 6 ETH, carol is not on the list.
+ * Expectation: fee 0.6, liq 3.78 ETH + 3,024,000 HOODS (listing 800k / ETH), claim 4M / 2M.
  */
 async function hoodsaleReadyFixture() {
   const ctx = await baseFixture();
@@ -317,7 +317,7 @@ function forkSuite() {
         expect(await pair.MINIMUM_LIQUIDITY()).to.equal(MINIMUM_LIQUIDITY);
       }
 
-      // The HOODSALE constructor also opened a pair on the real factory
+      // The HOODS constructor also opened a pair on the real factory
       const hoodPair = await hoodsale.mainPair();
       expect(hoodPair).to.not.equal(ZERO);
       expect(await dexFactory.getPair(hoodsale.target, WETH)).to.equal(hoodPair);
@@ -948,10 +948,10 @@ function forkSuite() {
     });
   });
 
-  // -------------------------------------------------------------- 5. HOODSALE
+  // -------------------------------------------------------------- 5. HOODS
 
-  describe("5. HOODSALE presale, tax swap-back and buyback on the real router", function () {
-    it("whitelist gate holds; finalize adds HOODSALE liquidity through the real router and locks the LP for a year", async function () {
+  describe("5. HOODS presale, tax swap-back and buyback on the real router", function () {
+    it("whitelist gate holds; finalize adds HOODS liquidity through the real router and locks the LP for a year", async function () {
       const ctx = await loadFixture(hoodsaleReadyFixture);
       const { hoodsale, hoodPresale, hoodPair, treasury, locker, deployer, alice, bob, carol } = ctx;
       expect(await hoodPresale.whitelistEnabled()).to.equal(true);
@@ -983,7 +983,7 @@ function forkSuite() {
       expect(await hoodsale.balanceOf(hoodsale.target)).to.equal(0n); // claim is tax free
     });
 
-    it("trading past swapThreshold swaps the 3 percent tax back (marketing ETH + depositBuyback), then executeBuyback burns HOODSALE via the real router", async function () {
+    it("trading past swapThreshold swaps the 3 percent tax back (marketing ETH + depositBuyback), then executeBuyback burns HOODS via the real router", async function () {
       const ctx = await loadFixture(hoodsaleLaunchedFixture);
       const { hoodsale, hoodPair, router, treasury, marketing, deployer, alice, bob } = ctx;
       const threshold = await hoodsale.swapThreshold();
@@ -1022,7 +1022,7 @@ function forkSuite() {
       expect(await treasury.buybackReserve()).to.equal(reserveBefore + buybackEth);
       expect(await hoodsale.balanceOf(hoodsale.target)).to.equal((sellAmount * 300n) / BPS);
 
-      // buyback: the whole reserve is swapped to HOODSALE through the real router and sent to 0xdEaD
+      // buyback: the whole reserve is swapped to HOODS through the real router and sent to 0xdEaD
       const reserve = await treasury.buybackReserve();
       expect(reserve).to.be.gt(0n);
       const r2 = await H.reservesOf(hoodPair, hoodsale.target);

@@ -144,7 +144,7 @@ async function main() {
   console.log("New addresses");
   console.log(`  metadataRegistry ${metadataRegistry.target}`);
   console.log(`  quickLaunch      ${quickLaunch.target}`);
-  console.log(`  deployer can edit HOODSALE profile: ${await metadataRegistry.canEdit(d.hoodsale, deployer.address)}`);
+  console.log(`  deployer can edit HOODS profile: ${await metadataRegistry.canEdit(d.hoodsale, deployer.address)}`);
   console.log(`  quickLaunch registry matches: ${same(await quickLaunch.metadataRegistry(), metadataRegistry.target)}`);
   if (network !== "hardhat" && network !== "localhost") {
     console.log("");

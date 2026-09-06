@@ -29,7 +29,7 @@ interface IQuickLaunch {
 ///         token's editor (see canEdit): the token owner, or the wallet that created the
 ///         token through QuickLaunch (quick tokens have no owner). The tokenomics record is
 ///         written by the token owner only. Besides factory tokens, platform tokens on the
-///         PresaleFactory allowlist (e.g. HOODSALE) are also eligible.
+///         PresaleFactory allowlist (e.g. HOODS) are also eligible.
 contract TokenMetadataRegistry {
     struct Metadata {
         string logoURI;

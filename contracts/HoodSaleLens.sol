@@ -65,7 +65,7 @@ contract HoodSaleLens {
         /// @notice Number of wallets on the whitelist
         uint256 whitelistCount;
         /// @notice Whether the token was created by TokenFactory. If false, it is a
-        ///         platform token added via the allowlist (e.g. HOODSALE) and tokenType holds the default value.
+        ///         platform token added via the allowlist (e.g. HOODS) and tokenType holds the default value.
         bool factoryToken;
         /// @notice Quick presale: locked rules, automatic launch and token delivery, no cancel
         bool quick;

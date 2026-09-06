@@ -21,7 +21,7 @@ async function createStandardToken(tokenFactory, signer, name, symbol, supply) {
   return ethers.getContractAt("StandardToken", ev.args.token);
 }
 
-/** Platform + HOODSALE/WETH liquidity on the mock DEX. */
+/** Platform + HOODS/WETH liquidity on the mock DEX. */
 async function hoodsaleMarketFixture() {
   const env = await deployPlatform();
   const { deployer, router, hoodsale } = env;
@@ -56,7 +56,7 @@ async function platformTokenFixture() {
   return { ...env, token };
 }
 
-/** Trades HOODSALE past the swap threshold, then a sell triggers the swapback. */
+/** Trades HOODS past the swap threshold, then a sell triggers the swapback. */
 async function swapbackFixture() {
   const env = await hoodsaleMarketFixture();
   const { alice, bob, marketing, weth, router, treasury, hoodsale } = env;
@@ -203,7 +203,7 @@ describe("Treasury", function () {
   });
 
   describe("executeBuyback", function () {
-    it("buys HOODSALE with reserve ETH and burns it to 0xdead", async function () {
+    it("buys HOODS with reserve ETH and burns it to 0xdead", async function () {
       const { treasury, hoodsale } = await loadFixture(buybackReadyFixture);
       const spend = ethers.parseEther("2");
       const deadBefore = await hoodsale.balanceOf(DEAD);
@@ -284,7 +284,7 @@ describe("Treasury", function () {
   });
 });
 
-describe("HOODSALE + Treasury integration", function () {
+describe("HOODS + Treasury integration", function () {
   it("AMM trading accrues 3% tax; a sell past swapThreshold swaps back and splits marketing/buyback", async function () {
     const {
       hoodsale,
@@ -318,7 +318,7 @@ describe("HOODSALE + Treasury integration", function () {
     expect(reserveGain - marketingGain).to.be.lte(1n);
   });
 
-  it("executeBuyback then burns the reserve into HOODSALE at 0xdead", async function () {
+  it("executeBuyback then burns the reserve into HOODS at 0xdead", async function () {
     const { treasury, hoodsale } = await loadFixture(swapbackFixture);
     const reserve = await treasury.buybackReserve();
     expect(reserve).to.be.gt(0);

@@ -307,7 +307,7 @@ describe("TokenMetadataRegistry editors", function () {
       expect(await metadataRegistry.canEdit(ethers.ZeroAddress, deployer.address)).to.equal(false);
     });
 
-    it("is true for the HOODSALE owner and for nobody else", async function () {
+    it("is true for the HOODS owner and for nobody else", async function () {
       const { metadataRegistry, hoodsale, deployer, alice } = await loadFixture(deployPlatform);
       expect(await metadataRegistry.canEdit(hoodsale.target, deployer.address)).to.equal(true);
       expect(await metadataRegistry.canEdit(hoodsale.target, alice.address)).to.equal(false);

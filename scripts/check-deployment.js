@@ -1,6 +1,6 @@
 // Read-only sanity check of a deployment: prints the wiring between the platform
 // contracts (including QuickLaunch, the quick creation fee and the launch keeper) and the
-// HOODSALE token state. Usage:
+// HOODS token state. Usage:
 //   npx hardhat run scripts/check-deployment.js --network robinhood
 const hre = require("hardhat");
 const { describeRewardRoutes } = require("./lib/reward-tokens");
@@ -69,6 +69,7 @@ async function main() {
     presaleFactory_quickLaunch: await safe(() => pf.quickLaunch()),
     treasury_hoodsale: await tr.hoodsale(),
     treasury_owner: await tr.owner(),
+    hoodsale_symbol: await hs.symbol(),
     hoodsale_totalSupply: hre.ethers.formatEther(await hs.totalSupply()),
     hoodsale_owner: await hs.owner(),
     hoodsale_mainPair: await hs.mainPair(),

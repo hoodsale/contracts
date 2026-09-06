@@ -3,7 +3,7 @@ const { loadFixture } = require("@nomicfoundation/hardhat-toolbox/network-helper
 const { deployPlatform } = require("./helpers");
 
 // Profile records: factory tokens and the platform tokens on the PresaleFactory
-// allowlist (HOODSALE) are eligible; no other token is.
+// allowlist (HOODS) are eligible; no other token is.
 describe("TokenMetadataRegistry allowlist", function () {
   const sample = {
     logoURI: "ipfs://logo",
@@ -16,14 +16,14 @@ describe("TokenMetadataRegistry allowlist", function () {
     updatedAt: 0,
   };
 
-  it("treats the allowlisted HOODSALE token as eligible", async function () {
+  it("treats the allowlisted HOODS token as eligible", async function () {
     const { metadataRegistry, hoodsale, weth, presaleFactory } = await loadFixture(deployPlatform);
     expect(await metadataRegistry.presaleFactory()).to.equal(presaleFactory.target);
     expect(await metadataRegistry.isEligible(hoodsale.target)).to.equal(true);
     expect(await metadataRegistry.isEligible(weth.target)).to.equal(false);
   });
 
-  it("lets the HOODSALE owner write its profile and nobody else", async function () {
+  it("lets the HOODS owner write its profile and nobody else", async function () {
     const { metadataRegistry, hoodsale, alice, deployer } = await loadFixture(deployPlatform);
     await expect(
       metadataRegistry.connect(alice).setMetadata(hoodsale.target, sample)

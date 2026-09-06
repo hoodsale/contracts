@@ -1518,7 +1518,7 @@ describe("Quick presale", function () {
       const { quickLaunch, weth, hoodsale, router, deployer } = env;
       expect(await quickLaunch.isRewardRouteLive(weth.target)).to.equal(true);
       expect([...(await quickLaunch.rewardPathOf(weth.target))]).to.deep.equal([weth.target]);
-      // HOODSALE opened its WETH pair at deployment, but the pool is empty
+      // HOODS opened its WETH pair at deployment, but the pool is empty
       await quickLaunch.setRewardTokenAllowed(hoodsale.target, true);
       expect([...(await quickLaunch.rewardPathOf(hoodsale.target))]).to.deep.equal([weth.target, hoodsale.target]);
       expect(await quickLaunch.isRewardRouteLive(hoodsale.target)).to.equal(false);

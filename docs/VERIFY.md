@@ -269,7 +269,7 @@ the watcher (all four tokens and both presales verified by default, `VERIFY_PRES
 skipping the presales, backoff after a 500 and success on the next attempt, `ONCE`
 mode, the keeper integration and `AUTO_VERIFY=0`).
 
-Not proven offline: a real Sourcify round trip (the HOODSALE token was verified by hand
+Not proven offline: a real Sourcify round trip (the platform token was verified by hand
 with `exact_match` through the same v2 calls on 2026-09-05), an actual `verify:verify`
 round trip on Blockscout (needs a testnet deployment) and the real mainnet challenge page
 (only its detection is tested).

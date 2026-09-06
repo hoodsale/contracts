@@ -3,7 +3,7 @@ const { ethers } = require("hardhat");
 /**
  * Deploys the whole platform together with MockDex.
  * Signers: deployer (platform owner), alice/bob/carol/dave (users),
- * marketing (HOODSALE marketing wallet).
+ * marketing (HOODS marketing wallet).
  */
 async function deployPlatform() {
   const [deployer, alice, bob, carol, dave, marketing, keeper] = await ethers.getSigners();

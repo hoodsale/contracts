@@ -208,7 +208,7 @@ async function main() {
       logoURI: "https://api.dicebear.com/9.x/shapes/svg?seed=hoodsale",
       bannerURI: "https://picsum.photos/seed/hoodsale/1200/300",
       description:
-        "HOODSALE is the token of the launchpad it trades on. Fixed supply of 100,000,000, a 3% tax on pool trades that funds marketing and buybacks, and a treasury that ring fences 30% of platform revenue to buy it back and burn it.",
+        "HOODS is the token of the launchpad it trades on. Fixed supply of 100,000,000, a 3% tax on pool trades that funds marketing and buybacks, and a treasury that ring fences 30% of platform revenue to buy it back and burn it.",
       website: "https://hoodsale.example",
       twitter: "https://x.com/hoodsale",
       telegram: "https://t.me/hoodsale",
@@ -244,9 +244,9 @@ async function main() {
   };
   const hdoge = await hre.ethers.getContractAt("StandardToken", tokens[0]);
   const hoodsale = await hre.ethers.getContractAt("HoodSaleToken", d.hoodsale);
-  // Sale size of the HOODSALE presale (created further down)
+  // Sale size of the HOODS presale (created further down)
   const hsShape = {
-    presaleRate: ETH(1_000_000), // 40M HOODSALE on sale (40%)
+    presaleRate: ETH(1_000_000), // 40M HOODS on sale (40%)
     listingRate: ETH(800_000), // ~23M in liquidity (23.04%)
     hardCap: ETH(40),
     liquidityBps: 8000,
@@ -298,7 +298,7 @@ async function main() {
   const hoodsaleTeamLock = await lockSlice(hoodsale, 1000, 730);
   console.log("Team locks:", { hdoge: hdogeTeamLock, hoodsale: hoodsaleTeamLock });
 
-  // --- HOODSALE's own presale (the platform's flagship sale) ---
+  // --- the HOODS presale (the platform's flagship sale) ---
   const hsNow = await nowTs();
   const hsParams = {
     token: d.hoodsale,
@@ -311,7 +311,7 @@ async function main() {
     liquidityAction: 0, // liquidity is locked
     lockDuration: 365 * 24 * 3600,
     launchTime: 0,
-    whitelistEnabled: true, // HOODSALE starts with the whitelist enabled
+    whitelistEnabled: true, // HOODS starts with the whitelist enabled
   };
   const hsRequired = await presaleFactory.requiredTokensFor(hsParams);
   await (await hoodsale.approve(presaleFactory.target, hsRequired)).wait();
@@ -329,7 +329,7 @@ async function main() {
   ]) {
     await (await hsSale.connect(signer).contribute({ value: ETH(amount) })).wait();
   }
-  console.log("HOODSALE presale:", hoodsalePresale);
+  console.log("HOODS presale:", hoodsalePresale);
 
   const lens = await hre.ethers.getContractAt("HoodSaleLens", d.lens);
   const [launches] = await lens.launchViews(0, 10);

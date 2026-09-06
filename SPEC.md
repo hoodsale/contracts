@@ -82,7 +82,7 @@ switch between the two modes at any time until launch
 (`setWhitelistEnabled`) and add/remove wallets in bulk (`addToWhitelist`,
 `removeFromWhitelist`); the list is preserved when the mode changes. While the whitelist is on,
 a contribution from a wallet not on the list is rejected with `not whitelisted`. Existing contributions,
-refunds, early exit and claim are not affected by the mode. HOODSALE's own presale starts with a
+refunds, early exit and claim are not affected by the mode. The HOODS presale starts with a
 whitelist and the dev can switch it to public whenever they want.
 
 ### Why the Platform Share Is Taken at Finalize
@@ -303,16 +303,16 @@ tax on top of the platform tax: the creator tax of a Tax token, rewards plus mar
 Rewards token, 0 for a Standard token; `LaunchView` and `MomentumView` carry the two tax fields
 as well).
 
-## HOODSALE Presale
-HOODSALE is itself a platform token and its presale goes through the same
+## HOODS Presale
+HOODS is itself a platform token and its presale goes through the same
 `PresaleFactory` flow as every other sale (the creation fee where there is one, the platform share,
-liquidity lock or burn, softcap refund included). Since HOODSALE does not come out of the
+liquidity lock or burn, softcap refund included). Since HOODS does not come out of the
 `TokenFactory`, it is added to the `PresaleFactory.setTokenAllowed` allowlist; only the platform
 owner can add to this list, user tokens must go through the factory. So that the sale contract
-can be exempted from tax, the factory is authorized in the HOODSALE token via `setPresaleFactory`.
+can be exempted from tax, the factory is authorized in the HOODS token via `setPresaleFactory`.
 
-## HOODSALE Token
-- Name: HoodSale, Ticker: **HOODSALE**
+## HOODS Token
+- Name: HoodSale, Ticker: **HOODS**
 - Supply: **100,000,000** (fixed, no mint), 18 decimals
 - Tax: **3%** on buy/sell (0 on wallet-to-wallet transfers); half marketing, half buyback reserve
 - Utility: future fee discounts / staking
@@ -322,18 +322,18 @@ All revenue is collected in the Treasury contract:
 - The platform share of the raised amount (2.5% on mainnet) + the 10% early exit penalties (ETH); the presale creation fees only when the factory charges them (contract defaults 0.1 and 0.03 ETH, none on mainnet)
 - The 0.25% buy/sell tax from all platform tokens (in token terms; the Treasury can swap these to ETH on the DEX)
 
-**30% of every ETH received goes to the buyback reserve**: HOODSALE is bought on the DEX and **burned**. The remaining 70% is for operations/treasury.
+**30% of every ETH received goes to the buyback reserve**: HOODS is bought on the DEX and **burned**. The remaining 70% is for operations/treasury.
 
 The top bar of the frontend shows the **buyback reserve** (ETH) held in the treasury and the amount of
-**HOODSALE burned** through buybacks, live (`Treasury.buybackReserve`, `Treasury.totalBoughtBack`); clicking it
-goes to the buyback explanation on the HOODSALE page. On narrow screens the same counter sits in the menu drawer.
+**HOODS burned** through buybacks, live (`Treasury.buybackReserve`, `Treasury.totalBoughtBack`); clicking it
+goes to the buyback explanation on the HOODS page. On narrow screens the same counter sits in the menu drawer.
 
 ## Project Information on the Presale Page
 Every presale page shows the project itself before the sale numbers:
 cover image (optional), logo, name, description and social links
 (website, X, Telegram, Discord). Right below, the token contract address and the presale
 contract address are shown, copyable and linked to the explorer; the token's buy/sell
-tax (platform share, project and reward shares if any, 3% for HOODSALE) is also shown here.
+tax (platform share, project and reward shares if any, 3% for HOODS) is also shown here.
 The information
 is read from `TokenMetadataRegistry`; the optional "Project profile" step of the presale
 creation flow writes this record (it is a separate transaction, can be done before or
@@ -373,7 +373,7 @@ wallet holding fewer tokens than the slice cannot lock it. Locks cannot be short
 before the unlock date.
 
 ## DexScreener Chart
-On the sale page, the token page and the HOODSALE page of launched tokens, a DexScreener
+On the sale page, the token page and the HOODS page of launched tokens, a DexScreener
 chart is embedded, and the "Open on DexScreener"
 link goes to the pool page (`dexscreener.com/robinhood/<pair>`; the pool address is
 the token's `mainPair()` value). DexScreener lists Robinhood Chain under the short
@@ -445,7 +445,7 @@ logo, cover image, description and social media links (website, twitter,
 telegram, discord). The token's owner can write its profile, and so can the creator of a
 quick sale (its token has no owner), at any time before, during and after the sale
 (`canEdit`; the sale page and the token page both carry the editor). Besides factory
-tokens, the platform tokens on the PresaleFactory allowlist (HOODSALE)
+tokens, the platform tokens on the PresaleFactory allowlist (HOODS)
 can also keep a profile (`isEligible`). The token page in the frontend
 shows this information together with the token's actual tax settings and market data.
 
@@ -462,7 +462,7 @@ amount) and all of them are explained together on the Docs page.
 ## Architecture
 ```
 contracts/
-  HoodSaleToken.sol          HOODSALE ERC-20 (fixed supply, 3% tax)
+  HoodSaleToken.sol          HOODS ERC-20 (fixed supply, 3% tax)
   Treasury.sol               revenue collection + 30% buyback&burn
   TokenFactory.sol           deploys the 3 token types, keeps the registry
   tokens/StandardToken.sol

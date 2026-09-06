@@ -10,7 +10,7 @@ interface ITreasuryBuyback {
     function depositBuyback() external payable;
 }
 
-/// @title HOODSALE, the HoodSale platform token
+/// @title HOODS, the HoodSale platform token
 /// @notice Fixed supply of 100M. A 3% marketing & buyback tax on buys and sells;
 ///         wallet-to-wallet transfers are TAX-FREE, and the tax is not distributed
 ///         at the moment it is taken: it accumulates in the contract as tokens, and on
@@ -28,7 +28,7 @@ contract HoodSaleToken is ERC20, ERC20Burnable, Ownable {
     address payable public treasury;
     address payable public marketingWallet;
     /// @notice The platform presale factory; it may call excludeFromFees so that the
-    ///         sale contract can be exempted from the tax during the HOODSALE presale.
+    ///         sale contract can be exempted from the tax during the HOODS presale.
     address public presaleFactory;
     /// @notice Marketing share of the ETH after a swap (the remainder goes to the buyback reserve)
     uint16 public marketingShareBps = 5_000;
@@ -56,7 +56,7 @@ contract HoodSaleToken is ERC20, ERC20Burnable, Ownable {
         address router_,
         address payable treasury_,
         address payable marketingWallet_
-    ) ERC20("HoodSale", "HOODSALE") Ownable(owner_) {
+    ) ERC20("HoodSale", "HOODS") Ownable(owner_) {
         require(router_ != address(0) && treasury_ != address(0) && marketingWallet_ != address(0), "zero addr");
         router = IUniswapV2Router02(router_);
         treasury = treasury_;

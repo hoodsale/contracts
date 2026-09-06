@@ -202,7 +202,7 @@ describe("Whitelist mode", function () {
       expect(await token.balanceOf(alice.address)).to.equal(E("2000"));
     });
 
-    it("works for the HOODSALE sale created through the allowlist path", async function () {
+    it("works for the HOODS sale created through the allowlist path", async function () {
       const env = await loadFixture(deployPlatform);
       const { hoodsale, presaleFactory, alice, bob } = env;
       // The shared deployPlatform snapshot is minutes old by the time the full suite gets here,

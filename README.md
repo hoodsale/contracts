@@ -20,11 +20,11 @@ specification the contracts implement; `docs/VERIFY.md` describes source verific
 | `contracts/PresaleCode.sol` | Holds the creation code of `Presale`; the factory deploys sales from it with CREATE so that the factory stays under the contract size limit. |
 | `contracts/Presale.sol` | One sale: contribute, early exit with a penalty, cancel, refund on a missed soft cap or a missed finalize window, finalize (platform share, liquidity on the DEX, LP lock or burn, owner payout), claim, permissionless token delivery (`distribute`), whitelist mode, schedule changes before the start, an optional launch time the keeper acts on, an on-chain participant list and activity log. |
 | `contracts/QuickLaunch.sol` | A token and a sale in one transaction with fixed rules (supply 1,000,000,000, 50% sold, soft cap a quarter of the hard cap, per wallet maximum 2% of the hard cap, LP burned, automatic launch at the hard cap or at the end, ownership renounced for Standard and Tax tokens). Keeps the reward token allowlist and the reward swap routes, and is the only caller of `PresaleFactory.createQuickPresale`. |
-| `contracts/Treasury.sol` | Receives all platform revenue. 30% of every incoming ETH (`buybackBps`) is set aside as the buyback reserve, which can only be spent on buying HOODSALE on the DEX and burning it (`executeBuyback`). Token revenue can be sold for ETH (`liquidateToken`) and falls under the same rule. |
+| `contracts/Treasury.sol` | Receives all platform revenue. 30% of every incoming ETH (`buybackBps`) is set aside as the buyback reserve, which can only be spent on buying HOODS on the DEX and burning it (`executeBuyback`). Token revenue can be sold for ETH (`liquidateToken`) and falls under the same rule. |
 | `contracts/LiquidityLocker.sol` | Locks LP tokens (or any ERC-20) until an unlock time. No owner. A lock can be extended or transferred, never shortened. |
 | `contracts/HoodSaleLens.sol` | Read-only batched views for the frontend: sale lists, participants, activity, launch performance, trending inputs. |
 | `contracts/TokenMetadataRegistry.sol` | On-chain token profiles (logo, cover, description, links) and tokenomics slices, writable by the token owner or the creator of a quick sale. |
-| `contracts/HoodSaleToken.sol` | HOODSALE, the platform token: 100,000,000 supply, 3% tax on pool buys and sells, split between the marketing wallet and the Treasury buyback reserve. |
+| `contracts/HoodSaleToken.sol` | HOODS, the platform token: 100,000,000 supply, 3% tax on pool buys and sells, split between the marketing wallet and the Treasury buyback reserve. |
 | `contracts/interfaces/` | The Uniswap V2 and V3 surface the contracts use. |
 | `contracts/test/` | `MockDex` (Uniswap V2 look-alike) and `MockUniswapV3` used by the offline tests. |
 
@@ -55,6 +55,7 @@ The Sourcify column states the match level at the time of writing for the contra
 have been verified; "repository" links to the Sourcify entry without a claim. Every token the
 factory creates is verified by the keeper automatically; presale contracts are verified by
 the keeper when `VERIFY_PRESALES=1` is set.
+HoodSaleToken was redeployed with the HOODS ticker; the earlier HOODSALE deployment listed above (0xfd09EA90e92cb0438227994A0d8aC2d3f8c20DF4) is not in use and the new address replaces it here once it is deployed.
 
 Other addresses: owner of the platform contracts (deployer)
 `0xeB9845B4D1E068d5A094f1B8E408d072acA99C20`, launch keeper wallet
@@ -82,7 +83,7 @@ the live settings and are listed for completeness.
 | Total token tax (platform plus owner defined) | up to 10% | | 10% (`MAX_TOTAL_TAX_BPS`) | enforced in `PlatformTaxBase` per direction |
 | Quick presale creator share of the gross raise | 0 to 10%, chosen by the creator | | 10% (`MAX_CREATOR_SHARE_BPS`) | stored on the sale as `creatorShareBps` |
 | Quick token creator tax | at most 5% per side | | 5% (`MAX_CREATOR_TAX_BPS`) | `QuickLaunch` |
-| HOODSALE token tax | 3% | 3% | fixed (`TAX_BPS`) | `HoodSaleToken`, split between marketing and the buyback reserve |
+| HOODS token tax | 3% | 3% | fixed (`TAX_BPS`) | `HoodSaleToken`, split between marketing and the buyback reserve |
 | Treasury buyback reserve | 30% of incoming ETH | 30% | 100% | `Treasury.buybackBps` |
 
 Other fixed sale rules in `PresaleFactory`: liquidity at least 51% of the net raise, LP lock
@@ -100,9 +101,9 @@ Changeable by the owner:
 
 | Contract | Owner functions | Bounds |
 |---|---|---|
-| `PresaleFactory` | `setFees(platformFeeBps, exitPenaltyBps)`, `setCreationFee`, `setQuickCreationFee`, `setTokenAllowed` (platform tokens that are not from the factory, HOODSALE), `setLaunchKeeper`, `setPresaleCode`, `setQuickLaunch`, `setTreasury`, `setRouter`, `setLocker` | fees at most 20%; a change applies to sales created afterwards only |
+| `PresaleFactory` | `setFees(platformFeeBps, exitPenaltyBps)`, `setCreationFee`, `setQuickCreationFee`, `setTokenAllowed` (platform tokens that are not from the factory, HOODS), `setLaunchKeeper`, `setPresaleCode`, `setQuickLaunch`, `setTreasury`, `setRouter`, `setLocker` | fees at most 20%; a change applies to sales created afterwards only |
 | `TokenFactory` | `setPlatformTaxBps`, `setDeployers`, `setPresaleFactory`, `setTreasury`, `setRouter` | platform tax at most 0.5%; a change applies to tokens created afterwards only |
-| `Treasury` | `setBuybackBps`, `setRouter`, `setHoodsale`, `executeBuyback(ethAmount, amountOutMin)`, `liquidateToken`, `withdrawEth(to, amount)`, `withdrawToken` | `withdrawEth` cannot touch the buyback reserve (`reserve locked`); the reserve leaves only through `executeBuyback`, which burns the HOODSALE it buys |
+| `Treasury` | `setBuybackBps`, `setRouter`, `setHoodsale`, `executeBuyback(ethAmount, amountOutMin)`, `liquidateToken`, `withdrawEth(to, amount)`, `withdrawToken` | `withdrawEth` cannot touch the buyback reserve (`reserve locked`); the reserve leaves only through `executeBuyback`, which burns the HOODS it buys |
 | `QuickLaunch` | `setRewardTokenAllowed`, `setRewardRoute`, `setRewardRouteV3` | routes reach an already launched token only through the permissionless `repairRewardRoute`, and only while its current route cannot pay |
 | `HoodSaleToken` | `setAmmPair`, `setPresaleFactory`, `excludeFromFees`, `setMarketingWallet`, `setTreasury`, `setMarketingShareBps`, `setSwapEnabled`, `manualSwapBack` | the 3% tax itself, the supply and the main pair are fixed; `setAmmPair` cannot remove the main pair |
 | `TokenMetadataRegistry` | `setPresaleFactory` (callable by the `TokenFactory` owner) | |
@@ -123,7 +124,7 @@ Fixed, no function exists to change it:
   ready.
 - `LiquidityLocker`, `HoodSaleLens` and `PresaleCode` have no owner and no settings.
 - The Treasury cannot spend the buyback reserve on anything other than buying and burning
-  HOODSALE.
+  HOODS.
 
 The platform contracts are not upgradeable. A new generation is deployed next to the old one
 (the `previous*` addresses) and the old one keeps serving what it created.
@@ -161,7 +162,7 @@ that serves historical state for the chosen block.
 | Script | Purpose |
 |---|---|
 | `scripts/deploy.js` | Deploys the whole platform (`DEPLOYER_KEY` in the environment, see `.env.example`) and writes `deployments/<network>.json`. |
-| `scripts/deploy-quicklaunch.js`, `deploy-rewards-deployer.js`, `deploy-lens.js`, `deploy-registry.js`, `deploy-quick.js` | Deploy or replace single components of an existing deployment. |
+| `scripts/deploy-hoodsale-token.js`, `deploy-quicklaunch.js`, `deploy-rewards-deployer.js`, `deploy-lens.js`, `deploy-registry.js`, `deploy-quick.js` | Deploy or replace single components of an existing deployment. |
 | `scripts/set-fees.js`, `scripts/set-launch-keeper.js` | Owner settings on the factory. |
 | `scripts/seed.js` | Test data on a local network. |
 | `scripts/check-deployment.js` | Reads a deployment back and checks the wiring. |

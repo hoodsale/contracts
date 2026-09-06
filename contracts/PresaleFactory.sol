@@ -65,7 +65,7 @@ contract PresaleFactory is Ownable, ReentrancyGuard {
     ///         to sale + liquidity, ownership renounced, profile written), not only the sale rules.
     address public quickLaunch;
 
-    /// @notice Allowlist for tokens that are not from the factory but belong to the platform (e.g. HOODSALE).
+    /// @notice Allowlist for tokens that are not from the factory but belong to the platform (e.g. HOODS).
     ///         Only the platform owner can add entries; user tokens cannot go through this path.
     mapping(address => bool) public allowedToken;
 
@@ -252,7 +252,7 @@ contract PresaleFactory is Ownable, ReentrancyGuard {
     // ------------------------------------------------------------- admin
 
     /// @notice Grants presale permission to a token that is not from the factory. Intended for
-    ///         platform-owned tokens such as HOODSALE; user tokens must go through the factory.
+    ///         platform-owned tokens such as HOODS; user tokens must go through the factory.
     function setTokenAllowed(address token, bool allowed) external onlyOwner {
         require(token != address(0), "zero addr");
         allowedToken[token] = allowed;

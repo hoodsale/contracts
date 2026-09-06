@@ -5,8 +5,8 @@ const { deployPlatform } = require("./helpers");
 
 const E = (n) => ethers.parseEther(String(n));
 
-// HOODSALE is the platform's own token and its presale runs through the same flow.
-describe("HOODSALE presale", function () {
+// HOODS is the platform's own token and its presale runs through the same flow.
+describe("HOODS presale", function () {
   async function hoodsaleSaleFixture() {
     const env = await deployPlatform();
     const { deployer, hoodsale, presaleFactory } = env;
@@ -141,20 +141,20 @@ describe("HOODSALE presale", function () {
     );
   });
 
-  it("reports the HOODSALE sale through the lens like any other presale", async function () {
+  it("reports the HOODS sale through the lens like any other presale", async function () {
     const { lens, presale, hoodsale } = await loadFixture(hoodsaleSaleFixture);
     const v = await lens.presaleView(presale.target);
     expect(v.token).to.equal(hoodsale.target);
-    expect(v.symbol).to.equal("HOODSALE");
+    expect(v.symbol).to.equal("HOODS");
     expect(v.softCap).to.equal(E("3"));
     expect(v.hardCap).to.equal(E("10"));
   });
 
-  it("flags the HOODSALE sale as a non factory token while factory tokens stay flagged", async function () {
+  it("flags the HOODS sale as a non factory token while factory tokens stay flagged", async function () {
     const { lens, presale, params, tokenFactory, presaleFactory } =
       await loadFixture(hoodsaleSaleFixture);
 
-    // HOODSALE is only allowlisted, so the factory has no record of it. The UI
+    // HOODS is only allowlisted, so the factory has no record of it. The UI
     // relies on this flag to avoid labelling it with the factory's default type.
     expect((await lens.presaleView(presale.target)).factoryToken).to.equal(false);
     expect((await lens.launchView(presale.target)).factoryToken).to.equal(false);

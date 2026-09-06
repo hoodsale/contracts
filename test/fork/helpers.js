@@ -237,7 +237,7 @@ function firstMintLiquidity(amountToken, amountWeth) {
 /**
  * Deploys the whole platform on the Robinhood Chain fork with the real Uniswap V2 router.
  * Signers: deployer (platform owner), alice/bob/carol/dave (users),
- * marketing (HOODSALE marketing wallet), keeper (launch bot).
+ * marketing (HOODS marketing wallet), keeper (launch bot).
  */
 async function deployPlatformOnFork() {
   return withSnapshotRetry(
@@ -278,7 +278,7 @@ async function deployPlatformOnFork() {
       const presaleCode = await ethers.deployContract("PresaleCode");
       await presaleFactory.setPresaleCode(presaleCode.target);
 
-      // The HOODSALE constructor opens the HOODSALE/WETH pair on the real factory
+      // The HOODS constructor opens the HOODS/WETH pair on the real factory
       const hoodsale = await ethers.deployContract("HoodSaleToken", [
         deployer.address,
         routerAddress,

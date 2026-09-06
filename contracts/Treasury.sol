@@ -12,7 +12,7 @@ import {IUniswapV2Router02} from "./interfaces/IUniswapV2.sol";
 ///         - Presale creation fees, 10% platform shares, 10% early-exit deductions (ETH)
 ///         - 0.25% buy/sell taxes coming from platform tokens (denominated in tokens)
 ///         30% of every incoming ETH is set aside as the buyback reserve; the reserve is
-///         used to buy HOODSALE from the DEX and send it to the burn address. Token-denominated
+///         used to buy HOODS from the DEX and send it to the burn address. Token-denominated
 ///         revenue can be converted to ETH on the DEX (`liquidateToken`) and falls under the same 30% rule.
 contract Treasury is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -41,7 +41,7 @@ contract Treasury is Ownable, ReentrancyGuard {
         emit RevenueReceived(msg.sender, msg.value, toReserve);
     }
 
-    /// @notice A deposit counted entirely toward the buyback reserve (e.g. the buyback share of the HOODSALE 3% tax).
+    /// @notice A deposit counted entirely toward the buyback reserve (e.g. the buyback share of the HOODS 3% tax).
     function depositBuyback() external payable {
         buybackReserve += msg.value;
         emit RevenueReceived(msg.sender, msg.value, msg.value);
@@ -67,7 +67,7 @@ contract Treasury is Ownable, ReentrancyGuard {
 
     // ------------------------------------------------------------- buyback
 
-    /// @notice Buys HOODSALE with the buyback reserve and burns it.
+    /// @notice Buys HOODS with the buyback reserve and burns it.
     function executeBuyback(uint256 ethAmount, uint256 amountOutMin) external onlyOwner nonReentrant {
         require(hoodsale != address(0) && address(router) != address(0), "not configured");
         require(ethAmount > 0 && ethAmount <= buybackReserve, "bad amount");

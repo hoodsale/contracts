@@ -737,7 +737,7 @@ describe("RewardsToken V3 route", function () {
   });
 });
 
-describe("HoodSaleToken (HOODSALE)", function () {
+describe("HoodSaleToken (HOODS)", function () {
   it("wallet-to-wallet transfers are tax-free", async function () {
     const { hoodsale, alice, bob } = await loadFixture(hoodFixture);
     await hoodsale.connect(alice).transfer(bob.address, E("1000000")); // neither excluded
