@@ -47,15 +47,15 @@ Sourcify links have the form `https://repo.sourcify.dev/4663/<address>`, Blocksc
 | RewardsTokenDeployer | `0x06286D7e4187cD1D720aC463bd6F00Eb6b93C1fD` | [exact match](https://repo.sourcify.dev/4663/0x06286D7e4187cD1D720aC463bd6F00Eb6b93C1fD) | [address](https://robinhoodchain.blockscout.com/address/0x06286D7e4187cD1D720aC463bd6F00Eb6b93C1fD) |
 | Treasury | `0x52C4fa5E853e556000429763A50cd9A0cdA971e7` | [exact match](https://repo.sourcify.dev/4663/0x52C4fa5E853e556000429763A50cd9A0cdA971e7) | [address](https://robinhoodchain.blockscout.com/address/0x52C4fa5E853e556000429763A50cd9A0cdA971e7) |
 | LiquidityLocker | `0xfF7E28d54f1927565Ab02781b635178b9b2683B7` | [exact match](https://repo.sourcify.dev/4663/0xfF7E28d54f1927565Ab02781b635178b9b2683B7) | [address](https://robinhoodchain.blockscout.com/address/0xfF7E28d54f1927565Ab02781b635178b9b2683B7) |
-| HoodSaleToken (HOODSALE) | `0xfd09EA90e92cb0438227994A0d8aC2d3f8c20DF4` | [exact match](https://repo.sourcify.dev/4663/0xfd09EA90e92cb0438227994A0d8aC2d3f8c20DF4) | [address](https://robinhoodchain.blockscout.com/address/0xfd09EA90e92cb0438227994A0d8aC2d3f8c20DF4) |
+| HoodSaleToken (HOODS) | `0xB132C4a0fe6Fa78f494D86bb371CeBE06b91B1A0` | [repository](https://repo.sourcify.dev/4663/0xB132C4a0fe6Fa78f494D86bb371CeBE06b91B1A0) | [address](https://robinhoodchain.blockscout.com/address/0xB132C4a0fe6Fa78f494D86bb371CeBE06b91B1A0) |
 | HoodSaleLens | `0xD0a952c8AdDd963075D0E1e0e7c2499f8ee1179d` | [repository](https://repo.sourcify.dev/4663/0xD0a952c8AdDd963075D0E1e0e7c2499f8ee1179d) | [address](https://robinhoodchain.blockscout.com/address/0xD0a952c8AdDd963075D0E1e0e7c2499f8ee1179d) |
 | TokenMetadataRegistry | `0x29F2BAAA2d0c1858653332C0CA5F9ae1586843e0` | [repository](https://repo.sourcify.dev/4663/0x29F2BAAA2d0c1858653332C0CA5F9ae1586843e0) | [address](https://robinhoodchain.blockscout.com/address/0x29F2BAAA2d0c1858653332C0CA5F9ae1586843e0) |
 
 The Sourcify column states the match level at the time of writing for the contracts that
 have been verified; "repository" links to the Sourcify entry without a claim. Every token the
 factory creates is verified by the keeper automatically; presale contracts are verified by
-the keeper when `VERIFY_PRESALES=1` is set.
-HoodSaleToken was redeployed with the HOODS ticker; the earlier HOODSALE deployment listed above (0xfd09EA90e92cb0438227994A0d8aC2d3f8c20DF4) is not in use and the new address replaces it here once it is deployed.
+the keeper as well unless `VERIFY_PRESALES=0`.
+HoodSaleToken was redeployed with the HOODS ticker on 2026-09-06; the earlier HOODSALE deployment (0xfd09EA90e92cb0438227994A0d8aC2d3f8c20DF4) is not used by the platform.
 
 Other addresses: owner of the platform contracts (deployer)
 `0xeB9845B4D1E068d5A094f1B8E408d072acA99C20`, launch keeper wallet

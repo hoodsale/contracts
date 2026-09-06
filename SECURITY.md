@@ -27,7 +27,7 @@ The Solidity sources in `contracts/` and the deployed instances on Robinhood Cha
 | RewardsTokenDeployer | 0x06286D7e4187cD1D720aC463bd6F00Eb6b93C1fD |
 | Treasury | 0x52C4fa5E853e556000429763A50cd9A0cdA971e7 |
 | LiquidityLocker | 0xfF7E28d54f1927565Ab02781b635178b9b2683B7 |
-| HoodSaleToken (HOODSALE) | 0xfd09EA90e92cb0438227994A0d8aC2d3f8c20DF4 |
+| HoodSaleToken (HOODS) | 0xB132C4a0fe6Fa78f494D86bb371CeBE06b91B1A0 |
 | HoodSaleLens | 0xD0a952c8AdDd963075D0E1e0e7c2499f8ee1179d |
 | TokenMetadataRegistry | 0x29F2BAAA2d0c1858653332C0CA5F9ae1586843e0 |
 
