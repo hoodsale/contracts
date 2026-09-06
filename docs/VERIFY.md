@@ -23,7 +23,7 @@ API directly, the plugin only knows the legacy endpoint.
 | `scripts/lib/sourcify.js` | Sourcify v2 client on the global `fetch`: `submitStandardJson`, `pollJob`, `getContractStatus`, `verifyStandardJson` (the three in one), `supportsChain`, `repoUrl`. Errors are `SourcifyError { code, httpStatus, customCode, retryable }`; "already verified" answers are success. |
 | `scripts/verify-standard-json.js` | Builds the verification package (Standard JSON Input taken from the Hardhat build-info, compiler version, ABI encoded constructor args); the same package is what Sourcify receives and what `verify-out/<network>/` gets for a manual upload. Also a CLI. |
 | `scripts/verify-contract.js` | Verifies one or more addresses (`ADDRESSES=` env). Shared core (`verifyOne`: Sourcify first, Blockscout second; `verifyAddresses`, Cloudflare detection, summary table) used by the two scripts below. |
-| `scripts/verify-platform.js` | Verifies every contract in `deployments/<network>.json` plus the three token deployers read from `TokenFactory`. Run it on purpose only: the platform source is not published by default. |
+| `scripts/verify-platform.js` | Verifies every contract in `deployments/<network>.json` plus the three token deployers read from `TokenFactory`. Run it after a platform deployment; the platform contracts are published and verified (see the Trust page of the site). |
 | `scripts/auto-verify.js` | Long running watcher: follows `TokenCreated` (and `PresaleCreated` with `VERIFY_PRESALES=1`), waits for confirmations, verifies with retries and exponential backoff, persists a cursor in `verify-state/<network>.json`. `scripts/launch-keeper.js` runs it in the keeper process unless `AUTO_VERIFY=0`. |
 | `test/verify-args.test.js`, `test/auto-verify.test.js` | Offline tests for all of the above (in-process Hardhat network, `MockDex`, a mocked Sourcify server on a random port). |
 
@@ -39,12 +39,12 @@ AUTO_VERIFY=0 KEEPER_KEY=0x... npm run keeper -- --network robinhood      # with
 
 # 2. the watcher on its own (same behaviour, no transactions)
 npm run auto-verify -- --network robinhood
-VERIFY_PRESALES=1 npm run auto-verify -- --network robinhood              # presales too
+VERIFY_PRESALES=0 npm run auto-verify -- --network robinhood              # tokens only
 
 # 3. arbitrary addresses (tokens, presales, deployers, platform contracts)
 ADDRESSES=0xTOKEN,0xPRESALE npx hardhat run scripts/verify-contract.js --network robinhood
 
-# 4. platform contracts (only when the founder decides to publish the platform source)
+# 4. platform contracts (after every deployment or replacement)
 npx hardhat run scripts/verify-platform.js --network robinhood
 
 # 5. manual packages only, no API call at all
@@ -65,7 +65,7 @@ Environment variables understood by the scripts:
 | `SOURCIFY_CHAINS` (`4663,46630`) | all | chains Sourcify is tried for |
 | `SOURCIFY_TIMEOUT_MS` (60000), `SOURCIFY_JOB_TIMEOUT_MS` (300000), `SOURCIFY_POLL_MS` (2000) | all | request timeout, how long to wait for a submitted job, polling interval |
 | `SOURCIFY_REPO_URL` (`https://repo.sourcify.dev`) | all | base of the links printed for verified contracts |
-| `VERIFY_PRESALES=1` | auto-verify, keeper | also verify `PresaleCreated` contracts (off by default: the Presale source is platform source) |
+| `VERIFY_PRESALES=0` | auto-verify, keeper | skip `PresaleCreated` contracts (verified by default) |
 | `AUTO_VERIFY=0` | keeper | do not run the watcher inside the keeper process |
 | `FORCE_MANUAL=1` | verify-contract, verify-platform, auto-verify | skip both APIs and write `verify-out/<network>/<address>.json` packages directly |
 | `VERIFY_OUT=dir` | all | package directory (default `verify-out`) |
@@ -218,7 +218,7 @@ Behaviour:
   when the deployments file points at other factories;
 - each tick scans `[cursor + 1, head - CONFIRMATIONS]` for `TokenCreated` (every
   Standard, Tax and Rewards token; QuickLaunch tokens are factory tokens and come through
-  the same event) and, with `VERIFY_PRESALES=1`, `PresaleCreated`, then verifies due
+  the same event) and `PresaleCreated` unless `VERIFY_PRESALES=0`, then verifies due
   entries; one failure never stops the loop, it is logged and retried with exponential
   backoff until `MAX_ATTEMPTS`, after which the address is kept under `done` as `gave-up`
   (retry later with `verify-contract.js`);
@@ -265,8 +265,8 @@ build-info with the right `contractIdentifier`, compiler version and creation tx
 verified as success; a 500 stays retryable without a manual package; `SOURCIFY=0` keeps
 the old behaviour; `DRY_RUN` prints the request), the QuickLaunch token (exact constructor
 args from the creation receipt, verified with the launch transaction as creation tx), and
-the watcher (all four tokens verified and the presale skipped, `VERIFY_PRESALES=1`
-including both presales, backoff after a 500 and success on the next attempt, `ONCE`
+the watcher (all four tokens and both presales verified by default, `VERIFY_PRESALES=0`
+skipping the presales, backoff after a 500 and success on the next attempt, `ONCE`
 mode, the keeper integration and `AUTO_VERIFY=0`).
 
 Not proven offline: a real Sourcify round trip (the HOODSALE token was verified by hand

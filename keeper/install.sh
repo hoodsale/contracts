@@ -4,7 +4,7 @@
 #   scp contracts/keeper/install.sh root@<server>:/root/          (from the repository on your machine)
 #   ssh root@<server> bash /root/install.sh
 #
-# The repository is private, so the script creates an SSH deploy key on the server, prints its
+# The script creates an SSH deploy key on the server (the repository it clones may be private), prints its
 # public half and waits until it has been added under the repository's Settings > Deploy keys
 # (read-only). Then it clones the repository to /opt/hoodsale, installs Node 22, builds the
 # contracts once (the compiler is downloaded), writes /etc/hoodsale/keeper.env from the example

@@ -436,9 +436,17 @@ describe("Sourcify verification", function () {
       return { w, lines };
     }
 
-    it("verifies every factory token (Standard, Tax, Rewards, QuickLaunch) on Sourcify and skips the presale", async function () {
+    it("verifies every factory token (Standard, Tax, Rewards, QuickLaunch) on Sourcify and skips the presale with VERIFY_PRESALES=0", async function () {
       const { deployments, tokens, presaleAddr, chainId } = await loadFixture(fixture);
-      const { w, lines } = watcherFor(deployments);
+      const savedFlag = process.env.VERIFY_PRESALES;
+      process.env.VERIFY_PRESALES = "0";
+      let w, lines;
+      try {
+        ({ w, lines } = watcherFor(deployments));
+      } finally {
+        if (savedFlag === undefined) delete process.env.VERIFY_PRESALES;
+        else process.env.VERIFY_PRESALES = savedFlag;
+      }
       expect(w.cfg.verifyPresales).to.equal(false);
       const s = await w.tick();
       expect(s.error).to.equal(null);
@@ -478,17 +486,9 @@ describe("Sourcify verification", function () {
       expect(mock.state.submissions).to.have.length(4);
     });
 
-    it("includes presales with VERIFY_PRESALES=1", async function () {
+    it("includes presales by default", async function () {
       const { deployments, presaleAddr, quick } = await loadFixture(fixture);
-      const saved = process.env.VERIFY_PRESALES;
-      process.env.VERIFY_PRESALES = "1";
-      let w;
-      try {
-        ({ w } = watcherFor(deployments));
-      } finally {
-        if (saved === undefined) delete process.env.VERIFY_PRESALES;
-        else process.env.VERIFY_PRESALES = saved;
-      }
+      const { w } = watcherFor(deployments);
       expect(w.cfg.verifyPresales).to.equal(true);
       const s = await w.tick();
       // 4 tokens + the normal presale + the quick presale QuickLaunch created
@@ -512,24 +512,24 @@ describe("Sourcify verification", function () {
       Date.now = () => now;
       try {
         // the first submission of every token fails, the later ones succeed
-        for (let i = 0; i < 4; i++) mock.state.failNext.push({ status: 500 });
+        for (let i = 0; i < 6; i++) mock.state.failNext.push({ status: 500 });
         const { w, lines } = watcherFor(deployments, { backoffBaseMs: 1000, backoffMaxMs: 8000, maxAttempts: 4 });
         await w.tick();
-        expect(mock.state.submissions).to.have.length(4);
+        expect(mock.state.submissions).to.have.length(6);
         const pending = Object.values(w.state.pending);
-        expect(pending).to.have.length(4);
+        expect(pending).to.have.length(6);
         expect(pending.every((p) => p.attempts === 1 && p.nextAttemptAt === now + 1000)).to.equal(true);
         expect(pending.every((p) => /HTTP 500/.test(p.lastError))).to.equal(true);
         expect(lines.some((l) => /attempt 1 failed .*HTTP 500.*retry in 1s/.test(l))).to.equal(true);
         expect(Object.keys(w.state.done)).to.have.length(0);
 
         await w.tick(); // not due yet
-        expect(mock.state.submissions).to.have.length(4);
+        expect(mock.state.submissions).to.have.length(6);
         now += 1000;
         await w.tick(); // attempt 2 succeeds
-        expect(mock.state.submissions).to.have.length(8);
+        expect(mock.state.submissions).to.have.length(12);
         expect(Object.keys(w.state.pending)).to.have.length(0);
-        expect(Object.keys(w.state.done)).to.have.length(4);
+        expect(Object.keys(w.state.done)).to.have.length(6);
         const d = w.state.done[standardAddr.toLowerCase()];
         expect(d.status).to.equal(STATUS.VERIFIED);
         expect(d.attempts).to.equal(2);
@@ -545,8 +545,8 @@ describe("Sourcify verification", function () {
       const started = Date.now();
       await w.run({ once: true });
       expect(Date.now() - started).to.be.lessThan(30_000);
-      expect(Object.keys(w.state.done)).to.have.length(4);
-      expect(lines[0]).to.match(/watching TokenFactory .*presales are not verified.*target Sourcify then Blockscout/);
+      expect(Object.keys(w.state.done)).to.have.length(6);
+      expect(lines[0]).to.match(/watching TokenFactory .*and PresaleFactory .*target Sourcify then Blockscout/);
       expect(fs.existsSync(w.stateFile)).to.equal(true);
     });
 
@@ -570,11 +570,12 @@ describe("Sourcify verification", function () {
         confirmations: 0,
       });
       expect(on.reason).to.equal(null);
-      expect(on.watcher.cfg.verifyPresales).to.equal(false);
+      expect(on.watcher.cfg.verifyPresales).to.equal(true);
       const s = await on.watcher.tick();
-      expect(s.done).to.equal(4);
+      // 4 tokens + the normal presale + the quick presale
+      expect(s.done).to.equal(6);
       expect(lines.every((l) => l.startsWith("verify "))).to.equal(true);
-      expect(lines.filter((l) => /verified on Sourcify/.test(l))).to.have.length(4);
+      expect(lines.filter((l) => /verified on Sourcify/.test(l))).to.have.length(6);
     });
   });
 });

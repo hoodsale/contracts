@@ -2,7 +2,8 @@
 // Tax and Rewards token, including the tokens QuickLaunch creates through the factory), waits
 // for enough confirmations and verifies every new contract on Sourcify (Blockscout as the
 // secondary target) with retries + exponential backoff. Presale contracts and the platform
-// contracts are not verified unless VERIFY_PRESALES=1 (the platform source stays private).
+// contracts are verified as well unless VERIFY_PRESALES=0 (the platform contracts are verified
+// once, by hand, with scripts/verify-contract.js).
 // A single failure never brings the process down. Progress is kept in verify-state/<network>.json.
 //
 //   npx hardhat run scripts/auto-verify.js --network robinhood      (npm run auto-verify -- --network robinhood)
@@ -16,7 +17,7 @@
 //   MAX_ATTEMPTS=8         number of attempts per contract
 //   BACKOFF_BASE_MS=30000  first retry delay (doubles on every attempt, capped at BACKOFF_MAX_MS)
 //   BACKOFF_MAX_MS=3600000
-//   VERIFY_PRESALES=1      also verify PresaleCreated contracts (off by default)
+//   VERIFY_PRESALES=0      skip PresaleCreated contracts (verified by default)
 //   ONCE=1                 runs a single round and exits (for use with cron)
 //   DRY_RUN=1              does not write the state file, does not hit the API, prints what it would do
 //   SOURCIFY=0 / SOURCIFY_URL / FORCE_MANUAL=1 / VERIFY_OUT / BLOCKSCOUT_API_KEY: see verify-contract.js
@@ -64,7 +65,7 @@ function createWatcher(hre, options = {}) {
     dryRun: options.dryRun ?? envFlag("DRY_RUN"),
     forceManual: options.forceManual ?? envFlag("FORCE_MANUAL"),
     // Presales (and with them the platform's own Presale source) are opt-in
-    verifyPresales: options.verifyPresales ?? envFlag("VERIFY_PRESALES"),
+    verifyPresales: options.verifyPresales ?? process.env.VERIFY_PRESALES !== "0",
     sourcify: options.sourcify ?? process.env.SOURCIFY !== "0",
     outDir: options.outDir || process.env.VERIFY_OUT || DEFAULT_OUT_DIR,
     stateDir: options.stateDir || DEFAULT_STATE_DIR,
@@ -274,7 +275,7 @@ function createWatcher(hre, options = {}) {
   async function run({ once = false } = {}) {
     const what = cfg.verifyPresales
       ? `TokenFactory ${deployments.tokenFactory} and PresaleFactory ${deployments.presaleFactory}`
-      : `TokenFactory ${deployments.tokenFactory} (presales are not verified, set VERIFY_PRESALES=1 to include them)`;
+      : `TokenFactory ${deployments.tokenFactory} (presales are not verified, VERIFY_PRESALES=0)`;
     log(`watching ${what} on ${hre.network.name}, target ${cfg.sourcify ? "Sourcify then Blockscout" : "Blockscout only"}${cfg.dryRun ? " (DRY_RUN)" : ""}`);
     while (!stopped) {
       const s = await tick();

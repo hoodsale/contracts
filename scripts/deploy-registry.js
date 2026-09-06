@@ -149,8 +149,8 @@ async function main() {
   if (network !== "hardhat" && network !== "localhost") {
     console.log("");
     console.log("Next: put metadataRegistry and quickLaunch into frontend/src/config/registry.js for this chain");
-    console.log("(the lens and the presale factory are unchanged). Optional, only if the platform source is meant");
-    console.log("to be public (Sourcify is the primary target, the keeper never verifies platform contracts on its own):");
+    console.log("(the lens and the presale factory are unchanged). Then verify the new contracts on Sourcify");
+    console.log("(the keeper never verifies platform contracts on its own):");
     console.log(`  ADDRESSES=${metadataRegistry.target},${quickLaunch.target} npx hardhat run scripts/verify-contract.js --network ${network}`);
   }
 }

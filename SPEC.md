@@ -434,9 +434,9 @@ success) and the result is logged once with the link `https://repo.sourcify.dev/
 Blockscout is only the secondary target when its API answers; the mainnet API sits behind a
 Cloudflare challenge (403) and its verification service returned 500, neither blocks the loop,
 failures are retried with exponential backoff and progress is kept in
-`verify-state/<network>.json`. Presale contracts and the platform contracts are not verified by
-default because the platform source stays private (`VERIFY_PRESALES=1` opts the presales in;
-`verify-platform.js` / `verify-contract.js` remain for deliberate, manual runs). Details in
+`verify-state/<network>.json`. Presale contracts are verified the same way unless
+`VERIFY_PRESALES=0`; the platform contracts were verified once by hand (`verify-contract.js`,
+Sourcify exact match) and are listed on the Trust page of the site. Details in
 `contracts/docs/VERIFY.md`.
 
 ## Token Profiles
