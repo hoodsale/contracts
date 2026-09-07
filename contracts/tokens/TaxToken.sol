@@ -8,7 +8,8 @@ import {PlatformTaxBase} from "./PlatformTaxBase.sol";
 ///         Taxes accumulate in the contract; on sells, once the threshold is exceeded they are
 ///         swapped to ETH and distributed pro rata between the marketing wallet and the Treasury.
 ///         Wallet-to-wallet transfers are tax-free.
-///         The total tax (including platform) cannot exceed 10% per direction.
+///         The total tax (including platform) cannot exceed 10% per direction. The owner can
+///         freeze the rates and the wallet for good with lock() (see PlatformTaxBase).
 contract TaxToken is PlatformTaxBase {
     address public marketingWallet;
     uint16 public buyTaxBps; // owner tax, excluding the platform share
@@ -41,6 +42,7 @@ contract TaxToken is PlatformTaxBase {
     }
 
     function setTaxes(uint16 buyTaxBps_, uint16 sellTaxBps_) external onlyOwner {
+        if (taxLocked) revert SettingLocked();
         _checkTaxes(buyTaxBps_, sellTaxBps_, platformTaxBps);
         buyTaxBps = buyTaxBps_;
         sellTaxBps = sellTaxBps_;
@@ -48,6 +50,7 @@ contract TaxToken is PlatformTaxBase {
     }
 
     function setMarketingWallet(address wallet) external onlyOwner {
+        if (taxWalletLocked) revert SettingLocked();
         require(wallet != address(0), "zero marketing");
         marketingWallet = wallet;
         emit MarketingWalletUpdated(wallet);

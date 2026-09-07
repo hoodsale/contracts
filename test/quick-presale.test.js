@@ -2157,9 +2157,10 @@ describe("Quick presale", function () {
 
       // A deployer behind a factory without a presale factory, or without a V3 router, hands out no path
       const bareFactory = await ethers.deployContract("TokenFactory", [deployer.address, treasury.target, router.target]);
-      const bareDeployer = await ethers.deployContract("RewardsTokenDeployer", [bareFactory.target, v3Router.target, v3Quoter.target]);
+      const code = await ethers.deployContract("RewardsTokenCode");
+      const bareDeployer = await ethers.deployContract("RewardsTokenDeployer", [bareFactory.target, v3Router.target, v3Quoter.target, code.target]);
       expect(await bareDeployer.platformRouteV3For(stock.target)).to.equal("0x");
-      const noV3 = await ethers.deployContract("RewardsTokenDeployer", [tokenFactory.target, ethers.ZeroAddress, ethers.ZeroAddress]);
+      const noV3 = await ethers.deployContract("RewardsTokenDeployer", [tokenFactory.target, ethers.ZeroAddress, ethers.ZeroAddress, code.target]);
       expect(await noV3.platformRouteV3For(stock.target)).to.equal("0x");
     });
   });

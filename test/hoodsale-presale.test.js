@@ -73,10 +73,13 @@ describe("HOODS presale", function () {
     ).to.be.revertedWith("not a platform token");
   });
 
-  it("creates the sale, pulls the exact token amount and excludes the sale from tax", async function () {
-    const { presale, hoodsale, required, treasury } = await loadFixture(hoodsaleSaleFixture);
+  it("creates the sale, pulls the exact token amount and the factory excludes the sale from tax", async function () {
+    const { presale, hoodsale, required, treasury, alice } = await loadFixture(hoodsaleSaleFixture);
 
     expect(await hoodsale.balanceOf(presale.target)).to.equal(required);
+    expect(await hoodsale.isExcludedFromFees(presale.target)).to.equal(true);
+    // Only the owner and the presale factory may touch the exemptions
+    await expect(hoodsale.connect(alice).excludeFromFees(presale.target, false)).to.be.revertedWith("not authorized");
     expect(await hoodsale.isExcludedFromFees(presale.target)).to.equal(true);
     // The 0.1 ETH creation fee went to the treasury, 30% of it was earmarked for the buyback reserve
     expect(await ethers.provider.getBalance(treasury.target)).to.equal(E("0.1"));

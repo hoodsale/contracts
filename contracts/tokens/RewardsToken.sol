@@ -122,6 +122,7 @@ contract RewardsToken is PlatformTaxBase, ReentrancyGuard {
         uint16 marketingBuy_,
         uint16 marketingSell_
     ) external onlyOwner {
+        if (taxLocked) revert SettingLocked();
         _checkTaxes(rewardsBuy_, marketingBuy_, platformTaxBps);
         _checkTaxes(rewardsSell_, marketingSell_, platformTaxBps);
         rewardsBuyTaxBps = rewardsBuy_;
@@ -132,6 +133,7 @@ contract RewardsToken is PlatformTaxBase, ReentrancyGuard {
     }
 
     function setMarketingWallet(address wallet) external onlyOwner {
+        if (taxWalletLocked) revert SettingLocked();
         require(wallet != address(0), "zero marketing");
         marketingWallet = wallet;
     }

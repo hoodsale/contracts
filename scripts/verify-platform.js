@@ -6,8 +6,8 @@
 //
 // The order matches the deploy order (they are independent, each one is verified on its own):
 //   Treasury, LiquidityLocker, TokenFactory, Standard/Tax/RewardsTokenDeployer (read from
-//   TokenFactory, not present in the deployments file), PresaleFactory, HoodSaleToken,
-//   TokenMetadataRegistry, HoodSaleLens.
+//   TokenFactory, not present in the deployments file) and RewardsTokenCode (read from the
+//   rewards deployer), PresaleFactory, HoodSaleToken, TokenMetadataRegistry, HoodSaleLens.
 // "router" (Uniswap, external contract) and "marketingWallet" (EOA) are skipped.
 // "Already Verified" responses count as success; a summary table is printed at the end.
 
@@ -45,6 +45,14 @@ async function platformTargets(hre, deployments) {
       for (const [label, addr] of deployers) {
         if (addr && addr !== zero) targets.push({ label, address: addr });
         else skipped.push({ label, address: "-", contract: label, status: "skipped", message: "not set on TokenFactory", warnings: [] });
+      }
+      // The owner-locks generation keeps RewardsToken's creation code in its own contract
+      const rewardsDeployer = deployers[2][1];
+      if (rewardsDeployer && rewardsDeployer !== zero) {
+        const rd = await hre.ethers.getContractAt("RewardsTokenDeployer", rewardsDeployer);
+        const code = await rd.rewardsTokenCode().catch(() => zero);
+        if (code && code !== zero) targets.push({ label: "rewardsTokenCode", address: code });
+        else skipped.push({ label: "rewardsTokenCode", address: "-", contract: "RewardsTokenCode", status: "skipped", message: "rewards deployer predates RewardsTokenCode", warnings: [] });
       }
     }
   }

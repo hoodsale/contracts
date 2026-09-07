@@ -5,6 +5,10 @@ interface ITokenOwner {
     function owner() external view returns (address);
 }
 
+interface IRenouncedToken {
+    function renouncedBy() external view returns (address);
+}
+
 interface ITokenFactoryRegistry {
     function isPlatformToken(address token) external view returns (bool);
     function owner() external view returns (address);
@@ -93,14 +97,15 @@ contract TokenMetadataRegistry {
         return address(presaleFactory) != address(0) && presaleFactory.allowedToken(token);
     }
 
-    /// @notice Whether `account` may write the profile of `token`: the token owner, or the
-    ///         wallet that created the token through the platform's QuickLaunch (quick tokens
-    ///         renounce ownership at creation). Independent of the sale state, so a profile can
-    ///         be edited before, during and after a sale. Tokens without an owner() function
+    /// @notice Whether `account` may write the profile of `token`: the token owner, the wallet
+    ///         that renounced ownership of a platform token (renouncedBy, recorded by the token),
+    ///         or the wallet that created the token through the platform's QuickLaunch (quick
+    ///         tokens renounce ownership at creation). Independent of the sale state, so a profile
+    ///         can be edited before, during and after a sale. Tokens without an owner() function
     ///         have no owner editor.
     function canEdit(address token, address account) public view returns (bool) {
         if (account == address(0)) return false;
-        if (_ownerOf(token) == account) return true;
+        if (controllerOf(token) == account) return true;
         if (address(presaleFactory) == address(0)) return false;
         address quickLaunch = IPresaleFactoryQuick(address(presaleFactory)).quickLaunch();
         if (quickLaunch == address(0)) return false;
@@ -134,11 +139,12 @@ contract TokenMetadataRegistry {
         emit MetadataUpdated(token, msg.sender);
     }
 
-    /// @notice Writes the project's supply distribution (token owner only, eligible tokens only).
+    /// @notice Writes the project's supply distribution (the token owner or, once ownership is
+    ///         renounced, the wallet that renounced it; eligible tokens only).
     ///         The slices must sum to exactly 100% (10000 bps); an empty array deletes the record.
     function setTokenomics(address token, Allocation[] calldata slices) external {
         if (!isEligible(token)) revert NotPlatformToken();
-        if (ITokenOwner(token).owner() != msg.sender) revert NotTokenOwner();
+        if (msg.sender == address(0) || controllerOf(token) != msg.sender) revert NotTokenOwner();
         if (slices.length > MAX_ALLOCATIONS) revert BadAllocation();
 
         delete _tokenomics[token];
@@ -174,10 +180,20 @@ contract TokenMetadataRegistry {
         if (len > max) revert TooLong();
     }
 
-    /// @dev owner() of a token, or the zero address when the call fails or returns nothing
-    ///      (a contract without owner(), or an address without code).
-    function _ownerOf(address token) private view returns (address) {
-        (bool ok, bytes memory data) = token.staticcall(abi.encodeWithSelector(ITokenOwner.owner.selector));
+    /// @notice The wallet in charge of a token's profile and tokenomics: its owner, or, when the
+    ///         token has no owner, the account that renounced ownership (zero for a token that
+    ///         records neither). A quick token's renouncer is the QuickLaunch contract, which is
+    ///         why canEdit also asks QuickLaunch for the creator.
+    function controllerOf(address token) public view returns (address) {
+        address owner = _addressView(token, ITokenOwner.owner.selector);
+        if (owner != address(0)) return owner;
+        return _addressView(token, IRenouncedToken.renouncedBy.selector);
+    }
+
+    /// @dev An address-returning view of a token, or the zero address when the call fails or
+    ///      returns nothing (a contract without the function, or an address without code).
+    function _addressView(address token, bytes4 selector) private view returns (address) {
+        (bool ok, bytes memory data) = token.staticcall(abi.encodeWithSelector(selector));
         if (!ok || data.length < 32) return address(0);
         return address(uint160(uint256(bytes32(data))));
     }

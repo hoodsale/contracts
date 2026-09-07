@@ -88,20 +88,27 @@ async function main() {
   }
   // The rewards deployer of the Uniswap V3 generation carries the chain's SwapRouter02 and QuoterV2
   // (the reward swap's V3 leg for the tokenized stocks); an earlier one prints "-" for both. The
-  // address comes from the factory when the deployments file predates scripts/deploy-rewards-deployer.js.
+  // address comes from the factory when the deployments file predates scripts/deploy-token-deployers.js.
   const rewardsDeployerAddr = d.rewardsDeployer || (await tf.rewardsDeployer());
   if (rewardsDeployerAddr && rewardsDeployerAddr !== hre.ethers.ZeroAddress) {
     const rd = await hre.ethers.getContractAt("RewardsTokenDeployer", rewardsDeployerAddr);
     out.rewardsDeployer = rewardsDeployerAddr;
     out.rewardsDeployer_v3Router = await safe(() => rd.v3Router());
     out.rewardsDeployer_v3Quoter = await safe(() => rd.v3Quoter());
+    // The owner-locks generation holds RewardsToken's creation code in RewardsTokenCode
+    out.rewardsDeployer_rewardsTokenCode = await safe(() => rd.rewardsTokenCode());
   }
+  out.tokenFactory_standardDeployer = await tf.standardDeployer();
+  out.tokenFactory_taxDeployer = await tf.taxDeployer();
   // The frontend ABIs come from the current build: a contract on chain that was deployed from
   // an earlier build answers with a different shape (the lens views, for instance) and breaks
   // the pages, so every upgradeable piece is compared with the build byte for byte
   // (immutable slots masked). "false" means redeploy before wiring the frontend.
   const builds = { ...d };
   if (rewardsDeployerAddr && rewardsDeployerAddr !== hre.ethers.ZeroAddress) builds.rewardsDeployer = rewardsDeployerAddr;
+  builds.standardDeployer = out.tokenFactory_standardDeployer;
+  builds.taxDeployer = out.tokenFactory_taxDeployer;
+  if (out.rewardsDeployer_rewardsTokenCode && out.rewardsDeployer_rewardsTokenCode !== "-") builds.rewardsTokenCode = out.rewardsDeployer_rewardsTokenCode;
   for (const [key, name] of [
     ["lens", "HoodSaleLens"],
     ["quickLaunch", "QuickLaunch"],
@@ -109,6 +116,9 @@ async function main() {
     ["presaleFactory", "PresaleFactory"],
     ["presaleCode", "PresaleCode"],
     ["rewardsDeployer", "RewardsTokenDeployer"],
+    ["standardDeployer", "StandardTokenDeployer"],
+    ["taxDeployer", "TaxTokenDeployer"],
+    ["rewardsTokenCode", "RewardsTokenCode"],
   ]) {
     if (builds[key]) out[`${key}_matchesBuild`] = await safe(() => matchesBuild(hre, name, builds[key]));
   }

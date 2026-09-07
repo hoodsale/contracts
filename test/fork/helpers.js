@@ -259,10 +259,12 @@ async function deployPlatformOnFork() {
       const standardDeployer = await ethers.deployContract("StandardTokenDeployer", [tokenFactory.target]);
       const taxDeployer = await ethers.deployContract("TaxTokenDeployer", [tokenFactory.target]);
       // The rewards deployer carries the real SwapRouter02 and QuoterV2 of Robinhood Chain
+      const rewardsTokenCode = await ethers.deployContract("RewardsTokenCode");
       const rewardsDeployer = await ethers.deployContract("RewardsTokenDeployer", [
         tokenFactory.target,
         ROBINHOOD.v3.router,
         ROBINHOOD.v3.quoter,
+        rewardsTokenCode.target,
       ]);
       await tokenFactory.setDeployers(standardDeployer.target, taxDeployer.target, rewardsDeployer.target);
 
@@ -287,11 +289,11 @@ async function deployPlatformOnFork() {
       ]);
       await treasury.setRouter(routerAddress);
       await treasury.setHoodsale(hoodsale.target);
-      await hoodsale.setPresaleFactory(presaleFactory.target);
       await presaleFactory.setTokenAllowed(hoodsale.target, true);
       await presaleFactory.setLaunchKeeper(keeper.address);
 
       const metadataRegistry = await ethers.deployContract("TokenMetadataRegistry", [tokenFactory.target]);
+      await hoodsale.setPresaleFactory(presaleFactory.target);
       await metadataRegistry.setPresaleFactory(presaleFactory.target);
       const lens = await ethers.deployContract("HoodSaleLens", [
         presaleFactory.target,

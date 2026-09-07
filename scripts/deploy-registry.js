@@ -1,7 +1,9 @@
-// Upgrades an existing deployment to the editor generation of the metadata registry.
+// Upgrades an existing deployment to the current generation of the metadata registry.
 //
 // Reads deployments/<network>.json, deploys a new TokenMetadataRegistry(tokenFactory) (its
-// canEdit lets the token owner or the QuickLaunch creator write a token's profile at any time),
+// canEdit lets the token owner, the wallet that renounced a platform token's ownership or the
+// QuickLaunch creator write a token's profile at any time; controllerOf names the owner or
+// renouncer who may also write the tokenomics),
 // points it at the PresaleFactory (metadataRegistry.setPresaleFactory, by the TokenFactory owner),
 // deploys a new QuickLaunch(tokenFactory, presaleFactory, newRegistry, rewardTokens) because the
 // registry address inside QuickLaunch is immutable, and wires presaleFactory.setQuickLaunch. Treasury,
@@ -52,7 +54,7 @@ async function main() {
     throw new Error(`the deployer must own PresaleFactory (owner is ${presaleFactoryOwner})`);
   }
   // The new QuickLaunch stores V3 routes for the stocks: on a chain with Uniswap V3 the rewards
-  // deployer must carry the V3 router first (scripts/deploy-rewards-deployer.js)
+  // deployer must carry the V3 router first (scripts/deploy-token-deployers.js)
   await requireV3Deployer(hre, d);
   // The V3 routes of the stocks are quoted before anything is deployed (every candidate on the
   // chain's QuoterV2): a round that fails or finds dead routes stops here, before any gas is spent
@@ -86,11 +88,11 @@ async function main() {
   if (!same(await metadataRegistry.tokenFactory(), d.tokenFactory)) {
     throw new Error("METADATA_REGISTRY does not point at this deployment's TokenFactory");
   }
-  // The previous generation of the registry has no canEdit: a reused address must be the new one
+  // Earlier generations of the registry have no controllerOf: a reused address must be the new one
   try {
-    await metadataRegistry.canEdit(d.hoodsale, deployer.address);
+    await metadataRegistry.controllerOf(d.hoodsale);
   } catch (e) {
-    throw new Error(`${metadataRegistry.target} is not the editor generation of TokenMetadataRegistry (no canEdit)`);
+    throw new Error(`${metadataRegistry.target} is not the current generation of TokenMetadataRegistry (no controllerOf)`);
   }
   await wire("metadataRegistry.presaleFactory", await metadataRegistry.presaleFactory(), presaleFactory.target, () =>
     metadataRegistry.setPresaleFactory(presaleFactory.target)

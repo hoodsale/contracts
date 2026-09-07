@@ -31,6 +31,23 @@ converting the accumulated tax to ETH, transferring or renouncing ownership. The
 automatic tax swap has been removed from platform tokens (the swap is already wrapped in try/catch
 so that it can never block a transfer).
 
+**Owner locks (one way).** `lock(flags)` on every platform token, owner only, takes any
+combination of `LOCK_TAXES` (1, `setTaxes` disabled for good), `LOCK_TAX_WALLET` (2,
+`setMarketingWallet` disabled), `LOCK_FEE_EXEMPTIONS` (4, the owner can no longer call
+`excludeFromFees`; the presale factory keeps it for the presale contracts it creates) and
+`LOCK_OWNERSHIP` (8, sets the other three and renounces; `renounceOwnership()` does the same).
+Views `taxLocked`, `taxWalletLocked`, `feeExemptionsLocked` and `renouncedBy` (the account that
+renounced). Nothing locked can be unlocked, a lock survives `transferOwnership`, and a Standard
+token has `taxLocked` and `taxWalletLocked` true from creation (it has neither). Event
+`LocksApplied(flags)`, errors `SettingLocked` and `BadLockFlags`. The create token form offers
+the four as options and sends `lock` right after creation; since a presale can only be created
+by the token owner, the create presale flow offers the renounce right after the sale is created.
+The token page shows an "Owner powers" panel (a Locked or Can change pill per setting, the
+renounced state, and Lock / Renounce actions for the owner) and the sale page's tax card shows
+the same as pills. `TokenMetadataRegistry.controllerOf(token)` names the owner or, once there is
+no owner, `renouncedBy`; that account writes the profile (`canEdit`, next to the quick creator
+path) and the tokenomics (`setTokenomics`), so renouncing does not orphan the project page.
+
 ## Presale
 - Creation fee: **none on mainnet**. It is a factory setting (`PresaleFactory.setCreationFee`); the contract default is 0.1 ETH, `scripts/set-fees.js` sets the live value (`CREATION_FEE_ETH=0`) and the frontend reads it from the chain (`creationFee`)
 - Platform share: **2.5%** of the ETH raised on mainnet (deducted automatically during finalize). It is a factory setting (`PresaleFactory.setFees`, cap `MAX_FEE_BPS` 20%); the contract default is 10%, `scripts/set-fees.js` sets the live value, every sale keeps the value it was created with and the frontend reads it from the chain
@@ -206,7 +223,9 @@ event `RewardRouteV3Updated(path)`). On the token the V3 path takes precedence o
 which stay stored and apply again once the path is cleared; only the QuickLaunch store replaces
 one form with the other. The token carries the chain's V3 router and quoter as
 immutables (`v3Router`, `v3Quoter`; the quoter is for off-chain quotes only) and takes them from
-`RewardsTokenDeployer(factory, v3Router, v3Quoter)`. The deployer also gives every new token the V3
+`RewardsTokenDeployer(factory, v3Router, v3Quoter, rewardsTokenCode)`; the deployer reads the token's
+creation code from `RewardsTokenCode` and deploys with CREATE, which keeps it under the 24KB limit
+(the owner locks below pushed the embedded version over it). The deployer also gives every new token the V3
 path the platform's QuickLaunch stores for its reward token (`platformRouteV3For(rewardToken)`,
 read through `presaleFactory.quickLaunch().rewardRouteV3Of` by staticcall, empty when any link is
 missing), so a Rewards token created through `TokenFactory.createRewardsToken` starts on the same
@@ -314,7 +333,11 @@ HOODS is itself a platform token and its presale goes through the same
 liquidity lock or burn, softcap refund included). Since HOODS does not come out of the
 `TokenFactory`, it is added to the `PresaleFactory.setTokenAllowed` allowlist; only the platform
 owner can add to this list, user tokens must go through the factory. So that the sale contract
-can be exempted from tax, the factory is authorized in the HOODS token via `setPresaleFactory`.
+can be exempted from tax, the factory is authorized in the HOODS token via `setPresaleFactory`
+(the only call another contract can make into HOODS; token scanners list it as an external
+action). The token has no swap switch and no manual swap: the collected tax is swapped on sells
+only, once it passes the threshold. Should an allowlisted token ever lack the hook, the sale page
+prompts its owner to exempt the sale contract by hand before the launch.
 
 ## HOODS Token
 - Name: HoodSale, Ticker: **HOODS**

@@ -11,8 +11,8 @@ specification the contracts implement; `docs/VERIFY.md` describes source verific
 
 | Source | Role |
 |---|---|
-| `contracts/TokenFactory.sol` | Creates the three token types through three deployer contracts (`StandardTokenDeployer`, `TaxTokenDeployer`, `RewardsTokenDeployer`) and keeps the registry of platform tokens (`isPlatformToken`, `infoOf`, `allTokens`). Creation is free apart from gas. |
-| `contracts/tokens/PlatformTaxBase.sol` | Shared base of the created tokens: fixed supply minted to the creator, 18 decimals, a platform tax on pool buys and sells paid in tokens to the Treasury, a hard cap of 10% on the total tax (`MAX_TOTAL_TAX_BPS`), AMM pair and fee exemption management. No mint, pause, blacklist or freeze function. |
+| `contracts/TokenFactory.sol` | Creates the three token types through three deployer contracts (`StandardTokenDeployer`, `TaxTokenDeployer`, `RewardsTokenDeployer`, the last one deploying from the creation code held by `contracts/tokens/RewardsTokenCode.sol`) and keeps the registry of platform tokens (`isPlatformToken`, `infoOf`, `allTokens`). Creation is free apart from gas. |
+| `contracts/tokens/PlatformTaxBase.sol` | Shared base of the created tokens: fixed supply minted to the creator, 18 decimals, a platform tax on pool buys and sells paid in tokens to the Treasury, a hard cap of 10% on the total tax (`MAX_TOTAL_TAX_BPS`), AMM pair and fee exemption management, and the one-way owner locks (`lock`: taxes, tax wallet, fee exemptions, ownership; `renouncedBy`). No mint, pause, blacklist or freeze function. |
 | `contracts/tokens/StandardToken.sol` | Platform tax only. |
 | `contracts/tokens/TaxToken.sol` | Platform tax plus an owner defined buy and sell tax swapped to ETH and sent to a marketing wallet. |
 | `contracts/tokens/RewardsToken.sol` | Platform tax plus a rewards tax distributed to holders in a chosen reward token (WETH, USDG or a tokenized stock) and an optional marketing tax. The reward swap runs on Uniswap V2 from the token's own pool, optionally followed by a Uniswap V3 path (`setRewardRoute`, `setRewardRouteV3`). |
@@ -105,8 +105,9 @@ Changeable by the owner:
 | `TokenFactory` | `setPlatformTaxBps`, `setDeployers`, `setPresaleFactory`, `setTreasury`, `setRouter` | platform tax at most 0.5%; a change applies to tokens created afterwards only |
 | `Treasury` | `setBuybackBps`, `setRouter`, `setHoodsale`, `executeBuyback(ethAmount, amountOutMin)`, `liquidateToken`, `withdrawEth(to, amount)`, `withdrawToken` | `withdrawEth` cannot touch the buyback reserve (`reserve locked`); the reserve leaves only through `executeBuyback`, which burns the HOODS it buys |
 | `QuickLaunch` | `setRewardTokenAllowed`, `setRewardRoute`, `setRewardRouteV3` | routes reach an already launched token only through the permissionless `repairRewardRoute`, and only while its current route cannot pay |
-| `HoodSaleToken` | `setAmmPair`, `setPresaleFactory`, `excludeFromFees`, `setMarketingWallet`, `setTreasury`, `setMarketingShareBps`, `setSwapEnabled`, `manualSwapBack` | the 3% tax itself, the supply and the main pair are fixed; `setAmmPair` cannot remove the main pair |
-| `TokenMetadataRegistry` | `setPresaleFactory` (callable by the `TokenFactory` owner) | |
+| `HoodSaleToken` | `setAmmPair`, `setPresaleFactory`, `excludeFromFees`, `setMarketingWallet`, `setTreasury`, `setMarketingShareBps` | the 3% tax itself, the supply and the main pair are fixed; `setAmmPair` cannot remove the main pair; no swap switch and no manual swap; the presale factory may call `excludeFromFees` for the HOODS sale contract |
+| Token owner (`StandardToken`, `TaxToken`, `RewardsToken`) | `setTaxes`, `setMarketingWallet`, `excludeFromFees`, `setAmmPair`, `manualSwapBack`, Rewards: `setRewardRoute`, `setRewardRouteV3`, `setExcludedFromRewards`, `distributeRewards`; `lock(flags)`, `renounceOwnership` | taxes within the 10% cap; `lock` is one way: `LOCK_TAXES`, `LOCK_TAX_WALLET`, `LOCK_FEE_EXEMPTIONS`, `LOCK_OWNERSHIP` (renounces, sets the other three, records `renouncedBy`); a lock survives a change of owner; the presale factory keeps `excludeFromFees` for the presale contracts it creates |
+| `TokenMetadataRegistry` | `setPresaleFactory` (callable by the `TokenFactory` owner) | the profile and the tokenomics are written by `controllerOf(token)`: the token owner or, once renounced, `renouncedBy` (plus the quick creator through QuickLaunch for the profile) |
 
 Fixed, no function exists to change it:
 
@@ -115,7 +116,9 @@ Fixed, no function exists to change it:
   token type and, for Rewards tokens, the reward token. There is no pause, blacklist, freeze
   or seizure function. Token owners can change their own taxes within the cap, the marketing
   wallet, fee exemptions, additional AMM pairs and (Rewards) the swap route and reward
-  exemptions, or renounce ownership.
+  exemptions, or renounce ownership; with `lock` they give the tax, the wallet or the
+  fee-exempt list up for good, and a Standard token counts its tax and wallet as locked from
+  creation.
 - In every sale: the parameters given at creation (caps, contribution limits, rates,
   liquidity share, lock or burn, creator share), the fee and penalty rates copied from the
   factory, the router, locker and treasury addresses. Only the sale owner can finalize or
@@ -162,7 +165,7 @@ that serves historical state for the chosen block.
 | Script | Purpose |
 |---|---|
 | `scripts/deploy.js` | Deploys the whole platform (`DEPLOYER_KEY` in the environment, see `.env.example`) and writes `deployments/<network>.json`. |
-| `scripts/deploy-hoodsale-token.js`, `deploy-quicklaunch.js`, `deploy-rewards-deployer.js`, `deploy-lens.js`, `deploy-registry.js`, `deploy-quick.js` | Deploy or replace single components of an existing deployment. |
+| `scripts/deploy-hoodsale-token.js`, `deploy-quicklaunch.js`, `deploy-token-deployers.js`, `deploy-lens.js`, `deploy-registry.js`, `deploy-quick.js` | Deploy or replace single components of an existing deployment. |
 | `scripts/set-fees.js`, `scripts/set-launch-keeper.js` | Owner settings on the factory. |
 | `scripts/seed.js` | Test data on a local network. |
 | `scripts/check-deployment.js` | Reads a deployment back and checks the wiring. |

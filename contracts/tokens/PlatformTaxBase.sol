@@ -17,6 +17,10 @@ interface ITokenFactoryView {
 ///         - During a SELL, if the accumulation exceeds swapThreshold (1/1000 of supply),
 ///           the contract swaps the accumulation to ETH on the DEX and distributes it (platform share to Treasury).
 ///         - If the swap fails, the transfer is not blocked (try/catch).
+///         Owner powers can be given up one way: lock() freezes the project tax rates, the tax
+///         wallet or the owner's fee-exempt list for good, or renounces ownership altogether;
+///         nothing locked can be unlocked, not even by a later owner. The platform keeps its
+///         bounded role: the presale factory still exempts the presale contracts it creates.
 abstract contract PlatformTaxBase is ERC20, Ownable {
     uint256 public constant BPS = 10_000;
     /// @notice Total tax cap per direction (buy or sell), 10% including the platform share
@@ -37,12 +41,30 @@ abstract contract PlatformTaxBase is ERC20, Ownable {
     mapping(address => bool) public isAmmPair;
     mapping(address => bool) public isExcludedFromFees;
 
+    /// @notice lock() flags. LOCK_OWNERSHIP renounces ownership and implies the other three.
+    uint8 public constant LOCK_TAXES = 1;
+    uint8 public constant LOCK_TAX_WALLET = 2;
+    uint8 public constant LOCK_FEE_EXEMPTIONS = 4;
+    uint8 public constant LOCK_OWNERSHIP = 8;
+
+    /// @notice The project tax rates can never change again (always true on a Standard token, which has none)
+    bool public taxLocked;
+    /// @notice The wallet that receives the project tax can never change again (always true on a Standard token)
+    bool public taxWalletLocked;
+    /// @notice The owner can no longer add or remove fee-exempt wallets
+    bool public feeExemptionsLocked;
+    /// @notice The account that renounced ownership; zero while the token has an owner
+    address public renouncedBy;
+
     event AmmPairSet(address indexed pair, bool value);
     event ExcludedFromFees(address indexed account, bool value);
     event SwapBack(uint256 tokensSwapped, uint256 ethReceived);
+    event LocksApplied(uint8 flags);
 
     error NotAuthorized();
     error TaxTooHigh();
+    error SettingLocked();
+    error BadLockFlags();
 
     modifier inSwapFlag() {
         inSwap = true;
@@ -105,9 +127,39 @@ abstract contract PlatformTaxBase is ERC20, Ownable {
     /// @dev Subclasses can hook extra bookkeeping into AMM pair registration (e.g. reward exclusion).
     function _afterAmmPairSet(address pair, bool value) internal virtual {}
 
+    /// @dev Once the owner locks the fee-exempt list only the platform may change it, which it
+    ///      does for the presale contracts it creates.
     function excludeFromFees(address account, bool value) external onlyOwnerOrPlatform {
+        if (feeExemptionsLocked && msg.sender == owner()) revert SettingLocked();
         isExcludedFromFees[account] = value;
         emit ExcludedFromFees(account, value);
+    }
+
+    // ------------------------------------------------------------- locks
+
+    /// @notice Gives up owner powers for good: any combination of LOCK_TAXES, LOCK_TAX_WALLET,
+    ///         LOCK_FEE_EXEMPTIONS and LOCK_OWNERSHIP. A lock survives a change of owner and
+    ///         cannot be undone. LOCK_OWNERSHIP sets the other three and renounces ownership.
+    function lock(uint8 flags) external onlyOwner {
+        if (flags == 0 || flags > 15) revert BadLockFlags();
+        _lock(flags);
+    }
+
+    /// @notice Renouncing ownership locks every setting and records who renounced.
+    function renounceOwnership() public override onlyOwner {
+        _lock(LOCK_OWNERSHIP);
+    }
+
+    function _lock(uint8 flags) private {
+        if (flags & LOCK_OWNERSHIP != 0) flags = LOCK_TAXES | LOCK_TAX_WALLET | LOCK_FEE_EXEMPTIONS | LOCK_OWNERSHIP;
+        if (flags & LOCK_TAXES != 0) taxLocked = true;
+        if (flags & LOCK_TAX_WALLET != 0) taxWalletLocked = true;
+        if (flags & LOCK_FEE_EXEMPTIONS != 0) feeExemptionsLocked = true;
+        emit LocksApplied(flags);
+        if (flags & LOCK_OWNERSHIP != 0) {
+            renouncedBy = owner();
+            _transferOwnership(address(0));
+        }
     }
 
     /// @notice Manually swaps the accumulated taxes to ETH (without waiting for the threshold).

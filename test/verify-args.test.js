@@ -34,7 +34,7 @@ function tmpDir(name) {
 
 async function fixture() {
   const env = await deployPlatform();
-  const { tokenFactory, presaleFactory, treasury, locker, router, hoodsale, metadataRegistry, lens, weth, v3Router, v3Quoter } = env;
+  const { tokenFactory, presaleFactory, treasury, locker, router, hoodsale, metadataRegistry, lens, weth, v3Router, v3Quoter, rewardsTokenCode } = env;
   const { deployer, alice, bob, carol, dave, marketing } = env;
   const provider = ethers.provider;
 
@@ -132,7 +132,8 @@ async function fixture() {
     },
     [await tokenFactory.standardDeployer()]: { contract: FQN.StandardTokenDeployer, args: [tokenFactory.target] },
     [await tokenFactory.taxDeployer()]: { contract: FQN.TaxTokenDeployer, args: [tokenFactory.target] },
-    [await tokenFactory.rewardsDeployer()]: { contract: FQN.RewardsTokenDeployer, args: [tokenFactory.target, v3Router.target, v3Quoter.target] },
+    [await tokenFactory.rewardsDeployer()]: { contract: FQN.RewardsTokenDeployer, args: [tokenFactory.target, v3Router.target, v3Quoter.target, rewardsTokenCode.target] },
+    [rewardsTokenCode.target]: { contract: FQN.RewardsTokenCode, args: [] },
     [treasury.target]: { contract: FQN.Treasury, args: [deployer.address] },
     [locker.target]: { contract: FQN.LiquidityLocker, args: [] },
     [tokenFactory.target]: { contract: FQN.TokenFactory, args: [deployer.address, treasury.target, router.target] },
@@ -523,13 +524,13 @@ describe("verification scripts (offline, in-process network)", function () {
     expect(r.message).to.match(/not a HoodSale/);
   });
 
-  it("verify-platform DRY_RUN covers every platform contract plus the three deployers in deploy order", async function () {
+  it("verify-platform DRY_RUN covers every platform contract plus the three deployers and the rewards code holder in deploy order", async function () {
     const { deployments, expected, tokenFactory } = await loadFixture(fixture);
     const lines = [];
     const results = await verifyPlatform.run(hre, { dryRun: true, deployments, log: (l) => lines.push(l) });
     const labels = results.map((r) => r.label);
     expect(labels).to.deep.equal([
-      "treasury", "locker", "tokenFactory", "standardDeployer", "taxDeployer", "rewardsDeployer",
+      "treasury", "locker", "tokenFactory", "standardDeployer", "taxDeployer", "rewardsDeployer", "rewardsTokenCode",
       "presaleFactory", "hoodsale", "metadataRegistry", "lens",
     ]);
     for (const r of results) {
@@ -538,7 +539,7 @@ describe("verification scripts (offline, in-process network)", function () {
       expect(norm(r.plainArgs), r.label).to.deep.equal(norm(expected[r.address].args));
     }
     expect(results[3].address).to.equal(await tokenFactory.standardDeployer());
-    expect(lines.join("\n")).to.include("summary: dry-run=10");
+    expect(lines.join("\n")).to.include("summary: dry-run=11");
   });
 
   it("verify-platform marks keys missing from the deployments file as skipped", async function () {

@@ -60,6 +60,7 @@ const FQN = {
   HoodSaleLens: "contracts/HoodSaleLens.sol:HoodSaleLens",
   TokenMetadataRegistry: "contracts/TokenMetadataRegistry.sol:TokenMetadataRegistry",
   PresaleCode: "contracts/PresaleCode.sol:PresaleCode",
+  RewardsTokenCode: "contracts/tokens/RewardsTokenCode.sol:RewardsTokenCode",
   QuickLaunch: "contracts/QuickLaunch.sol:QuickLaunch",
 };
 
@@ -73,6 +74,7 @@ const DEPLOYMENT_KEYS = {
   metadataRegistry: "TokenMetadataRegistry",
   lens: "HoodSaleLens",
   presaleCode: "PresaleCode",
+  rewardsTokenCode: "RewardsTokenCode",
   quickLaunch: "QuickLaunch",
 };
 
@@ -176,6 +178,8 @@ const DEPLOYER_ABI = [
   // RewardsTokenDeployer only (the Uniswap V3 generation): the chain's SwapRouter02 and QuoterV2
   "function v3Router() view returns (address)",
   "function v3Quoter() view returns (address)",
+  // RewardsTokenDeployer of the owner-locks generation: the holder of RewardsToken's creation code
+  "function rewardsTokenCode() view returns (address)",
 ];
 
 // Constructor signatures of the token deployers. The rewards deployer of the Uniswap V3
@@ -225,6 +229,7 @@ const PLATFORM_CONSTRUCTORS = {
   HoodSaleLens: ["address", "address", "address"],
   TokenMetadataRegistry: ["address"],
   PresaleCode: [],
+  RewardsTokenCode: [],
   // The token type generation adds a dynamic address[] (the reward allowlist) and the previous
   // generation; both are read back from the contract instead of the creation-tx tail.
   QuickLaunch: ["address", "address", "address", "address[]", "address"],
@@ -513,6 +518,7 @@ async function detect(provider, address, code, o) {
       "StandardTokenDeployer",
       "TaxTokenDeployer",
       "RewardsTokenDeployer",
+      "RewardsTokenCode",
     ]);
     if (name) {
       if (name.endsWith("Deployer")) return { kind: "deployer", name, tokenFactory: f };
@@ -913,6 +919,14 @@ async function reconstructDeployer(provider, address, det) {
     } else {
       args.push(v3Router, v3Quoter);
       sources.v3Router = sources.v3Quoter = "immutable-state";
+      // The owner-locks generation deploys the token from the creation code held by RewardsTokenCode
+      const code = await tryCall(() => c.rewardsTokenCode());
+      if (code === null) {
+        warnings.push("no rewardsTokenCode(): a RewardsTokenDeployer from before the owner-locks generation (three constructor arguments)");
+      } else {
+        args.push(code);
+        sources.rewardsTokenCode = "immutable-state";
+      }
     }
   }
   return {
@@ -997,7 +1011,7 @@ async function reconstructPlatform(provider, address, det, o) {
     meta: { creation: creation || null, sources, warnings, viaBytecode: !!det.viaBytecode },
   });
 
-  if (name === "LiquidityLocker" || name === "PresaleCode") {
+  if (name === "LiquidityLocker" || name === "PresaleCode" || name === "RewardsTokenCode") {
     sources.all = "no-constructor-args";
     return finish([], null);
   }

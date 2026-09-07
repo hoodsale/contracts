@@ -42,7 +42,7 @@ async function main() {
   console.log(`Upgrading ${network} with ${deployer.address}`);
   console.log(`Current PresaleFactory ${d.presaleFactory || "-"}, lens ${d.lens || "-"}, quickLaunch ${d.quickLaunch || "-"}`);
   // The new QuickLaunch stores V3 routes for the stocks: on a chain with Uniswap V3 the rewards
-  // deployer must carry the V3 router first (scripts/deploy-rewards-deployer.js)
+  // deployer must carry the V3 router first (scripts/deploy-token-deployers.js)
   await requireV3Deployer(hre, d);
   // The V3 routes of the stocks are quoted before anything is deployed (every candidate on the
   // chain's QuoterV2): a round that fails or finds dead routes stops here, before any gas is spent
@@ -95,7 +95,7 @@ async function main() {
   await wire("hoodsale.presaleFactory", await hoodsale.presaleFactory(), presaleFactory.target, () =>
     hoodsale.setPresaleFactory(presaleFactory.target)
   );
-  if (await presaleFactory.allowedToken(d.hoodsale)) {
+    if (await presaleFactory.allowedToken(d.hoodsale)) {
     console.log(`presaleFactory.allowedToken(hoodsale): already true`);
   } else {
     await (await presaleFactory.setTokenAllowed(d.hoodsale, true)).wait();

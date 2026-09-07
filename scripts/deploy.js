@@ -96,7 +96,9 @@ async function main() {
   const taxDeployer = await hre.ethers.deployContract("TaxTokenDeployer", [tokenFactory.target]);
   // The rewards deployer carries the chain's V3 router and quoter and hands every new Rewards
   // token the V3 route QuickLaunch stores for its reward token
-  const rewardsDeployer = await hre.ethers.deployContract("RewardsTokenDeployer", [tokenFactory.target, v3Router, v3Quoter]);
+  const rewardsTokenCode = await hre.ethers.deployContract("RewardsTokenCode");
+  await rewardsTokenCode.waitForDeployment();
+  const rewardsDeployer = await hre.ethers.deployContract("RewardsTokenDeployer", [tokenFactory.target, v3Router, v3Quoter, rewardsTokenCode.target]);
   await Promise.all([
     standardDeployer.waitForDeployment(),
     taxDeployer.waitForDeployment(),
@@ -132,8 +134,8 @@ async function main() {
   await (await treasury.setHoodsale(hoodsale.target)).wait();
 
   // Let HOODS run its own presale through the platform
-  await (await hoodsale.setPresaleFactory(presaleFactory.target)).wait();
   await (await presaleFactory.setTokenAllowed(hoodsale.target, true)).wait();
+  await (await hoodsale.setPresaleFactory(presaleFactory.target)).wait();
   // Platform bot that triggers scheduled launches on behalf of the owner
   await (await presaleFactory.setLaunchKeeper(process.env.LAUNCH_KEEPER || deployer.address)).wait();
   // The platform share of a completed raise: 2.5% on mainnet (scripts/set-fees.js), mirrored here
@@ -194,6 +196,7 @@ async function main() {
     lens: lens.target,
     quickLaunch: quickLaunch.target,
     rewardsDeployer: rewardsDeployer.target,
+    rewardsTokenCode: rewardsTokenCode.target,
     marketingWallet,
   };
   console.log(addresses);

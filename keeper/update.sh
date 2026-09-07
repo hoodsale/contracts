@@ -4,6 +4,8 @@
 set -euo pipefail
 APP_DIR="/opt/hoodsale"
 export GIT_SSH_COMMAND="ssh -i /root/.ssh/hoodsale_deploy -o IdentitiesOnly=yes"
+# The clone belongs to the hoodsale user; git refuses to touch it as root without this.
+git config --global --get-all safe.directory 2>/dev/null | grep -qx "$APP_DIR" || git config --global --add safe.directory "$APP_DIR"
 cd "$APP_DIR"
 git fetch -q origin main
 git reset -q --hard origin/main

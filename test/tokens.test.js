@@ -792,22 +792,15 @@ describe("HoodSaleToken (HOODS)", function () {
     expect(await hoodsale.balanceOf(hoodsale.target)).to.equal(E("300"));
   });
 
-  it("manualSwapBack flushes accrued tax below the threshold (owner-only)", async function () {
-    const { hoodsale, router, weth, treasury, marketing, deployer, alice } = await loadFixture(hoodFixture);
+  it("has no manual swap and no swap switch", async function () {
+    const { hoodsale, router, weth, alice } = await loadFixture(hoodFixture);
+    for (const name of ["manualSwapBack", "setSwapEnabled", "swapEnabled"]) {
+      expect(hoodsale.interface.hasFunction(name), name).to.equal(false);
+    }
+    // Below the threshold the tax simply waits in the contract for the next qualifying sell
     await sell(router, weth, hoodsale, alice, E("100000")); // fee 3k < threshold
     expect(await hoodsale.balanceOf(hoodsale.target)).to.equal(E("3000"));
-
-    await expect(hoodsale.connect(alice).manualSwapBack()).to.be.revertedWithCustomError(
-      hoodsale,
-      "OwnableUnauthorizedAccount"
-    );
-
-    const treBefore = await ethers.provider.getBalance(treasury.target);
-    const mktBefore = await ethers.provider.getBalance(marketing.address);
-    await expect(hoodsale.connect(deployer).manualSwapBack()).to.emit(hoodsale, "SwapBack");
-    expect(await hoodsale.balanceOf(hoodsale.target)).to.equal(0);
-    expect(await ethers.provider.getBalance(treasury.target)).to.be.gt(treBefore);
-    expect(await ethers.provider.getBalance(marketing.address)).to.be.gt(mktBefore);
+    await expect(hoodsale.connect(alice).excludeFromFees(alice.address, true)).to.be.revertedWith("not authorized");
   });
 
   it("setMarketingShareBps caps at 100% and is owner-only", async function () {

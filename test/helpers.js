@@ -30,10 +30,12 @@ async function deployPlatform() {
 
   const standardDeployer = await ethers.deployContract("StandardTokenDeployer", [tokenFactory.target]);
   const taxDeployer = await ethers.deployContract("TaxTokenDeployer", [tokenFactory.target]);
+  const rewardsTokenCode = await ethers.deployContract("RewardsTokenCode");
   const rewardsDeployer = await ethers.deployContract("RewardsTokenDeployer", [
     tokenFactory.target,
     v3Router.target,
     v3Quoter.target,
+    rewardsTokenCode.target,
   ]);
   await tokenFactory.setDeployers(standardDeployer.target, taxDeployer.target, rewardsDeployer.target);
 
@@ -57,8 +59,8 @@ async function deployPlatform() {
   ]);
   await treasury.setRouter(router.target);
   await treasury.setHoodsale(hoodsale.target);
-  await hoodsale.setPresaleFactory(presaleFactory.target);
   await presaleFactory.setTokenAllowed(hoodsale.target, true);
+  await hoodsale.setPresaleFactory(presaleFactory.target);
   // The platform's launch bot: triggers scheduled sales on the owner's behalf
   await presaleFactory.setLaunchKeeper(keeper.address);
 
@@ -90,6 +92,7 @@ async function deployPlatform() {
     v3Router,
     v3Quoter,
     rewardsDeployer,
+    rewardsTokenCode,
     deployer,
     alice,
     bob,

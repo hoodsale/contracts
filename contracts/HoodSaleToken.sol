@@ -17,6 +17,10 @@ interface ITreasuryBuyback {
 ///         sells, once the accumulated amount exceeds swapThreshold (1/1000 of supply),
 ///         it is automatically swapped to ETH and split: half to the marketing wallet,
 ///         half to the Treasury's buyback reserve (the ratio is adjustable by the owner).
+///         The swap has no switch and no manual trigger. Next to the owner, only the platform
+///         presale factory may act on this token, and only to exempt the HOODS sale contract
+///         from the tax so that the listing at launch is untaxed; the tax rate itself is a
+///         constant.
 contract HoodSaleToken is ERC20, ERC20Burnable, Ownable {
     uint256 public constant BPS = 10_000;
     uint256 public constant TOTAL_SUPPLY = 100_000_000e18;
@@ -34,7 +38,6 @@ contract HoodSaleToken is ERC20, ERC20Burnable, Ownable {
     uint16 public marketingShareBps = 5_000;
 
     bool private inSwap;
-    bool public swapEnabled = true;
 
     mapping(address => bool) public isAmmPair;
     mapping(address => bool) public isExcludedFromFees;
@@ -95,6 +98,8 @@ contract HoodSaleToken is ERC20, ERC20Burnable, Ownable {
         emit PresaleFactorySet(factory_);
     }
 
+    /// @notice Exempts a wallet or contract from the tax, or removes an exemption. The presale
+    ///         factory uses it for the HOODS sale contract when the sale is created.
     function excludeFromFees(address account, bool value) external {
         require(msg.sender == owner() || msg.sender == presaleFactory, "not authorized");
         isExcludedFromFees[account] = value;
@@ -117,15 +122,6 @@ contract HoodSaleToken is ERC20, ERC20Burnable, Ownable {
         emit MarketingShareUpdated(bps);
     }
 
-    function setSwapEnabled(bool enabled) external onlyOwner {
-        swapEnabled = enabled;
-    }
-
-    function manualSwapBack() external onlyOwner {
-        require(!inSwap, "in swap");
-        _swapBack();
-    }
-
     // ------------------------------------------------------------ taxes
 
     /// @notice Automatic swap threshold: 1/1000 of total supply
@@ -142,7 +138,7 @@ contract HoodSaleToken is ERC20, ERC20Burnable, Ownable {
         bool excluded = isExcludedFromFees[from] || isExcludedFromFees[to];
 
         // On a sell, if the accumulated amount exceeds the threshold, swap-back runs first
-        if (!inSwap && swapEnabled && !excluded && isAmmPair[to]) {
+        if (!inSwap && !excluded && isAmmPair[to]) {
             if (balanceOf(address(this)) >= swapThreshold()) {
                 _swapBack();
             }

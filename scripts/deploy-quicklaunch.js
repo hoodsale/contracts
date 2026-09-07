@@ -20,7 +20,7 @@
 // working on the old one (the keeper follows each sale's owner).
 //
 // On a chain with Uniswap V3 the token factory's rewards deployer must carry the V3 router
-// (scripts/deploy-rewards-deployer.js): QuickLaunch reads the V3 factory through it and
+// (scripts/deploy-token-deployers.js): QuickLaunch reads the V3 factory through it and
 // setRewardRouteV3 reverts without it, so the script refuses to run before that upgrade.
 //
 // The stock routes are quoted BEFORE anything is deployed, so a quoting round that fails (the RPC

@@ -5,6 +5,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {StandardToken} from "./tokens/StandardToken.sol";
 import {TaxToken} from "./tokens/TaxToken.sol";
 import {RewardsToken} from "./tokens/RewardsToken.sol";
+import {RewardsTokenCode} from "./tokens/RewardsTokenCode.sol";
 
 /// @dev Token creation code is split into a separate deployer contract per type
 ///      so that the 24KB contract size limit is not hit.
@@ -72,16 +73,20 @@ interface IRewardRouteStore {
 /// @dev Deploys RewardsToken. Carries the chain's Uniswap V3 router and quoter for the reward
 ///      swap's V3 leg, and gives every new token the V3 route the platform's QuickLaunch stores
 ///      for its reward token, so a token created through the factory directly starts on the same
-///      route as a quick launch (tokenized stocks trade on V3 on Robinhood Chain).
+///      route as a quick launch (tokenized stocks trade on V3 on Robinhood Chain). The token's
+///      creation code lives in RewardsTokenCode (see there) and is deployed with CREATE.
 contract RewardsTokenDeployer {
     address public immutable factory;
     address public immutable v3Router;
     address public immutable v3Quoter;
+    RewardsTokenCode public immutable rewardsTokenCode;
 
-    constructor(address factory_, address v3Router_, address v3Quoter_) {
+    constructor(address factory_, address v3Router_, address v3Quoter_, RewardsTokenCode code_) {
+        require(address(code_) != address(0), "zero code");
         factory = factory_;
         v3Router = v3Router_;
         v3Quoter = v3Quoter_;
+        rewardsTokenCode = code_;
     }
 
     function deploy(
@@ -95,15 +100,20 @@ contract RewardsTokenDeployer {
         address rewardToken_,
         address marketingWallet_,
         uint16[4] calldata taxes_
-    ) external returns (address) {
+    ) external returns (address token) {
         require(msg.sender == factory, "only factory");
-        return address(
-            new RewardsToken(
+        bytes memory initCode = abi.encodePacked(
+            rewardsTokenCode.creationCode(),
+            abi.encode(
                 name_, symbol_, totalSupply_, creator_, treasury_, factory, router_,
                 platformTaxBps_, rewardToken_, marketingWallet_, taxes_,
                 v3Router, v3Quoter, platformRouteV3For(rewardToken_)
             )
         );
+        assembly ("memory-safe") {
+            token := create(0, add(initCode, 0x20), mload(initCode))
+        }
+        require(token != address(0), "token deploy failed");
     }
 
     /// @notice The V3 path the platform's current QuickLaunch stores for `rewardToken`; empty when

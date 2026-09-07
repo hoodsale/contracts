@@ -359,6 +359,16 @@ async function main() {
   await (await foxSale.setWhitelistEnabled(true)).wait();
   await (await foxSale.addToWhitelist(signers.slice(5, 17).map((w) => w.address))).wait();
 
+  // --- Owner locks ---
+  // HCAT (the Tax token with the upcoming sale): rates and tax wallet frozen, exemptions open.
+  // HFOX (the whitelisted sale): ownership renounced after the sale was created, so the sale
+  // page and the token page show a token nobody can change, with the profile kept by the deployer.
+  const hcat = await hre.ethers.getContractAt("TaxToken", tokens[1]);
+  await (await hcat.lock((await hcat.LOCK_TAXES()) | (await hcat.LOCK_TAX_WALLET()))).wait();
+  const hfox = await hre.ethers.getContractAt("StandardToken", foxAddr);
+  await (await hfox.lock(await hfox.LOCK_OWNERSHIP())).wait();
+  console.log("Locks: HCAT taxes and wallet locked, HFOX renounced");
+
   // --- Quick presales (QuickLaunch: token + sale with locked rules in one transaction) ---
   const quickLaunch = await hre.ethers.getContractAt("QuickLaunch", d.quickLaunch);
   const quickFee = await presaleFactory.quickCreationFee();

@@ -189,11 +189,11 @@ async function requireV3Deployer(hre, deployments) {
   const dep = await rewardsDeployerV3(hre, deployments.tokenFactory);
   if (!dep) {
     throw new Error(
-      "tokenFactory.rewardsDeployer() has no v3Router(): the reward swap's Uniswap V3 leg is missing; run scripts/deploy-rewards-deployer.js first"
+      "tokenFactory.rewardsDeployer() has no v3Router(): the reward swap's Uniswap V3 leg is missing; run scripts/deploy-token-deployers.js first"
     );
   }
   if (!same(dep.v3Router, v3.router)) {
-    throw new Error(`the rewards deployer's v3Router is ${dep.v3Router}, the chain's SwapRouter02 is ${v3.router}; run scripts/deploy-rewards-deployer.js`);
+    throw new Error(`the rewards deployer's v3Router is ${dep.v3Router}, the chain's SwapRouter02 is ${v3.router}; run scripts/deploy-token-deployers.js`);
   }
   return dep;
 }

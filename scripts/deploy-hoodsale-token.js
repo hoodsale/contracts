@@ -1,6 +1,6 @@
-// Redeploys the platform token on an existing deployment (the HOODS ticker generation: the
-// symbol is fixed in the constructor, ERC20("HoodSale", "HOODS"), so a new symbol means a new
-// contract; nothing else about the token changes).
+// Redeploys the platform token on an existing deployment (the audit generation: no swap switch
+// and no manual swap; the presale factory keeps its hook to exempt the HOODS sale contract from
+// the tax when the sale is created).
 //
 // Reads deployments/<network>.json, deploys HoodSaleToken(deployer, router, treasury,
 // marketingWallet) with the same arguments scripts/deploy.js uses (the whole supply goes to the
@@ -13,9 +13,12 @@
 // address in the file is kept. No presale of the previous token exists and its pool has no
 // liquidity, so nothing else has to move.
 //
-//   DEPLOYER_KEY=0x... ROBINHOOD_RPC=... npx hardhat run scripts/deploy-hoodsale-token.js --network robinhood
+//   DEPLOYER_KEY=0x... npx hardhat run scripts/deploy-hoodsale-token.js --network robinhood
 //
 // Optional environment:
+//   WIRE=0                  deploy only: the token is written to the file as hoodsaleCandidate
+//                           and nothing on the platform is pointed at it (for an audit scan
+//                           first); run again with HOODS_TOKEN=<that address> to wire it
 //   HOODS_TOKEN=0x...       reuse an already deployed new HoodSaleToken (must carry the HOODS
 //                           symbol and point at this deployment's router and Treasury)
 //   MARKETING_WALLET=0x...  marketing wallet of the new token (default: the one in the file)
@@ -45,16 +48,17 @@ async function main() {
   console.log(`Current hoodsale ${d.hoodsale || "-"}, treasury ${d.treasury}, presaleFactory ${d.presaleFactory}, router ${d.router}`);
   console.log(`Marketing wallet ${marketingWallet}`);
 
+  const wireIt = process.env.WIRE !== "0";
   const treasury = await hre.ethers.getContractAt("Treasury", d.treasury);
   const presaleFactory = await hre.ethers.getContractAt("PresaleFactory", d.presaleFactory);
   // treasury.setHoodsale is restricted to the Treasury owner, presaleFactory.setTokenAllowed to
   // the PresaleFactory owner: both must be the deployer for the wiring below
   const treasuryOwner = await treasury.owner();
   const presaleFactoryOwner = await presaleFactory.owner();
-  if (!same(treasuryOwner, deployer.address)) {
+  if (wireIt && !same(treasuryOwner, deployer.address)) {
     throw new Error(`the deployer must own Treasury (owner is ${treasuryOwner})`);
   }
-  if (!same(presaleFactoryOwner, deployer.address)) {
+  if (wireIt && !same(presaleFactoryOwner, deployer.address)) {
     throw new Error(`the deployer must own PresaleFactory (owner is ${presaleFactoryOwner})`);
   }
 
@@ -91,6 +95,20 @@ async function main() {
   if (!same(tokenOwner, deployer.address)) {
     throw new Error(`the deployer must own the new HoodSaleToken (owner is ${tokenOwner})`);
   }
+  // The audit generation has no manualSwapBack and no swap switch: a reused address must be that generation
+  const code = ((await hre.ethers.provider.getCode(hoodsale.target)) || "").toLowerCase();
+  if (code.includes(hre.ethers.id("manualSwapBack()").slice(2, 10)) || code.includes(hre.ethers.id("setSwapEnabled(bool)").slice(2, 10))) {
+    throw new Error(`${hoodsale.target} still carries manualSwapBack or setSwapEnabled: not the audit generation of HoodSaleToken`);
+  }
+
+  if (!wireIt) {
+    const addresses = { ...d, hoodsaleCandidate: hoodsale.target };
+    fs.writeFileSync(file, JSON.stringify(addresses, null, 2));
+    console.log(`Saved as hoodsaleCandidate in deployments/${network}.json; nothing on the platform points at it yet.`);
+    console.log(`Next: verify it (scripts/verify-contract.js), run the audit scan, then wire it with`);
+    console.log(`  HOODS_TOKEN=${hoodsale.target} npx hardhat run scripts/deploy-hoodsale-token.js --network ${network}`);
+    return;
+  }
 
   const wire = async (label, current, wanted, send) => {
     if (same(current, wanted)) {
@@ -122,6 +140,7 @@ async function main() {
   if (d.hoodsale) await allow(d.hoodsale, false);
 
   const addresses = { ...d, hoodsale: hoodsale.target };
+  delete addresses.hoodsaleCandidate;
   if (d.hoodsale) addresses.previousHoodsale = d.hoodsale;
   fs.writeFileSync(file, JSON.stringify(addresses, null, 2));
   console.log(`Saved to deployments/${network}.json`);
