@@ -22,14 +22,17 @@ The Solidity sources in `contracts/` and the deployed instances on Robinhood Cha
 |---|---|
 | PresaleFactory | 0x8dcC19e98713C2EC024dd337Edea18BEBC490942 |
 | PresaleCode | 0xADe97b179f1dC0776452BC6BBb83A27447A17C14 |
-| QuickLaunch | 0xa6aCfa20DC3165e36AdB02BCF1C178C151ed751f |
+| QuickLaunch | 0xAFE71e8F922e740087af9d56091913022e3f76Fc |
 | TokenFactory | 0x7BD7c2d1f37215de6DE59bC7fD92eA3649d3Cdbf |
-| RewardsTokenDeployer | 0x06286D7e4187cD1D720aC463bd6F00Eb6b93C1fD |
+| StandardTokenDeployer | 0x4b2c825EA2d159707DE11cBF58373151bF7f0DDA |
+| TaxTokenDeployer | 0x6cf85c050c2C0eC7266e12a95258E921Ca3F34f8 |
+| RewardsTokenDeployer | 0x73DA50C43AbAbb486d6cc4d94ac65D3396F1b84a |
+| RewardsTokenCode | 0xDC7ec9F5AA960418CcfA5042fc0AF1d2488CAbb9 |
 | Treasury | 0x52C4fa5E853e556000429763A50cd9A0cdA971e7 |
 | LiquidityLocker | 0xfF7E28d54f1927565Ab02781b635178b9b2683B7 |
 | HoodSaleToken (HOODS) | 0xFa00A62D38c5C4fe9BEc719c24A4D5E97D98f28e |
 | HoodSaleLens | 0xD0a952c8AdDd963075D0E1e0e7c2499f8ee1179d |
-| TokenMetadataRegistry | 0x29F2BAAA2d0c1858653332C0CA5F9ae1586843e0 |
+| TokenMetadataRegistry | 0x10A6B866EE01407C09a61C709d10AcFd93a8dCA6 |
 
 Also in scope: every Presale the factory creates and every StandardToken, TaxToken and
 RewardsToken the token factory creates from these sources, and the keeper scripts in
