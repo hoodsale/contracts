@@ -43,7 +43,10 @@ so that it can never block a transfer).
 
 **Rates in the creation form.** Both rates are tokens per 1 ETH (scaled by 1e18 on chain). The create
 page offers two modes. Automatic (the default) derives them from the share of the total supply sold in
-the presale (default 40%, above 0 and below 100) and the hard cap: tokens for sale = supply × share,
+the presale and the hard cap. The share has two settings: "Everything to the sale" (the default) computes
+the largest share the wallet can fund, so the sale tokens plus the pool's tokens take the whole balance
+and nothing stays with the team (one bps is kept back for rounding); "Custom" types a share above 0 and
+below 100. Tokens for sale = supply × share,
 presale rate = tokens for sale / hard cap, listing rate = presale rate / (1 + premium), where the listing
 price is either the same as the presale price or higher by a premium of 0 to 500%. Manual accepts both
 rates directly and is prefilled with the last derived values. Both modes write the same two contract
