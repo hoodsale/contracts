@@ -43,7 +43,7 @@ interface IQuickLaunchPrevious {
 ///         - listing price equal to the presale price, LP burned, unsold tokens burned at launch
 ///         - soft cap 25% of the hard cap, 0.1% minimum and 2% maximum per wallet
 ///         - 30 minutes, 1 hour, 2 hours or 6 hours; launch time equal to the end time
-///         - the creator picks a share of the raise (0 to 10% of the gross raise); the platform
+///         - the creator takes no share of the raise (MAX_CREATOR_SHARE_PERCENT is 0); the platform
 ///           takes the factory's platform share (PresaleFactory.platformFeeBps, 2.5% on mainnet);
 ///           liquidity takes the rest
 ///         - every token beyond sale + liquidity is burned at creation
@@ -99,7 +99,10 @@ contract QuickLaunch is Ownable, ReentrancyGuard {
     uint256 public constant SALE_SUPPLY = TOTAL_SUPPLY / 2; // 50% of the supply is sold
     uint256 public constant MIN_HARD_CAP = 0.5 ether;
     uint256 public constant MAX_HARD_CAP = 100 ether;
-    uint8 public constant MAX_CREATOR_SHARE_PERCENT = 10;
+    /// @notice The creator takes nothing from a quick raise: after the platform share the whole
+    ///         raise becomes liquidity. QuickParams.creatorSharePercent stays in the ABI and must
+    ///         be 0; earlier generations allowed up to 10.
+    uint8 public constant MAX_CREATOR_SHARE_PERCENT = 0;
     /// @notice Cap per side (5%) on the token's own tax: the creator tax of a Tax token, rewards
     ///         plus marketing of a Rewards token. The platform tax of the token factory applies on top.
     uint16 public constant MAX_CREATOR_TAX_BPS = 500;

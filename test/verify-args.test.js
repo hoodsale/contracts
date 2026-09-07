@@ -264,7 +264,7 @@ describe("constructor argument reconstruction", function () {
 
     // Launched through QuickLaunch: the constructor stores the path, launch applies it again in the same tx
     const q = {
-      name: "Quick Stock", symbol: "QSTK", hardCap: E("1"), durationOption: 0, creatorSharePercent: 5,
+      name: "Quick Stock", symbol: "QSTK", hardCap: E("1"), durationOption: 0, creatorSharePercent: 0,
       tokenType: 2, rewardToken: tsla.target, taxWallet: ethers.ZeroAddress, buyTaxBps: 100, sellTaxBps: 100,
       rewardsBuyBps: 300, rewardsSellBps: 300, logoURI: "", description: "",
     };

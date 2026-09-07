@@ -95,8 +95,10 @@ is the platform's only upfront revenue; it stays in the treasury even if the sal
 A quick presale is a token and a sale created in **one transaction** (`QuickLaunch.launch(QuickParams)`)
 with every rule fixed in advance. The creator chooses the name, the symbol, an optional logo and
 one line description, the hard cap (presets 2, 5, 10 ETH or 0.5 to 100 ETH), the length (30
-minutes, 1 hour, 2 hours or 6 hours), a **creator share of the gross raise** (a whole percent, 0
-to 10, default 5) and the **token type** with its taxes and tax wallet. Creation fee: **none on
+minutes, 1 hour, 2 hours or 6 hours) and the **token type** with its taxes and tax wallet. There
+is no creator share of the raise: `QuickLaunch.MAX_CREATOR_SHARE_PERCENT` is 0, the
+`creatorSharePercent` field of `QuickParams` stays in the ABI and must be 0 (the two earlier
+generations allowed up to 10). Creation fee: **none on
 mainnet** (`PresaleFactory.setQuickCreationFee`, contract default 0.03 ETH, set by
 `scripts/set-fees.js` with `QUICK_CREATION_FEE_ETH=0`; the quick page reads `quickCreationFee`
 and sends nothing before that read landed).
@@ -237,12 +239,12 @@ transaction. Quick sales cannot be cancelled. Only the `QuickLaunch` contract ma
 `PresaleFactory.createQuickPresale` (`setQuickLaunch`, platform owner), so a sale flagged as
 quick always carries these token guarantees.
 
-**Raise split, stated on the gross raise.** Platform share (the normal `platformFeeBps`, 2.5% on mainnet), creator
-0 to 10% (chosen, stored on the sale as `creatorShareBps` and shown on the sale page), liquidity
-the rest (at least 87.5% at the mainnet fee). On chain the platform fee is taken first and `liquidityBps` applies to
-the net raise, so the factory requires `liquidityBps == ceil((10000 - platformFeeBps -
-creatorShareBps) * 10000 / (10000 - platformFeeBps))` (`PresaleFactory.quickLiquidityBps`); the
-creator receives `netEth - liquidityEth`, sent to `payoutRecipient` (the creator wallet) at launch.
+**Raise split, stated on the gross raise.** Platform share (the normal `platformFeeBps`, 2.5% on mainnet), liquidity
+the rest (97.5% at the mainnet fee); the creator takes nothing (`creatorShareBps` is stored on the sale and is
+always 0 for sales of this QuickLaunch generation). On chain the platform fee is taken first and `liquidityBps`
+applies to the net raise, so the factory requires `liquidityBps == ceil((10000 - platformFeeBps -
+creatorShareBps) * 10000 / (10000 - platformFeeBps))` (`PresaleFactory.quickLiquidityBps`), which is 10000 with
+a zero share; `payoutRecipient` (the creator wallet) therefore receives nothing at launch.
 
 **Automatic launch.** The contribution that fills the hard cap (remaining room below the minimum
 contribution) finalizes the sale in the same transaction (`contribute` calls the self-call

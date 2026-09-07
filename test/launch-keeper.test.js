@@ -16,10 +16,10 @@ const DEAD = "0x000000000000000000000000000000000000dEaD";
 describe("Launch keeper", function () {
   const WAD = 10n ** 18n;
 
-  /** The QuickParams struct: a Standard token unless overridden, 1 ETH, 30 minutes, 5% share. */
+  /** The QuickParams struct: a Standard token unless overridden, 1 ETH, 30 minutes, no creator share. */
   function quickParams(name, symbol, overrides = {}) {
     return {
-      name, symbol, hardCap: E(1), durationOption: 0, creatorSharePercent: 5,
+      name, symbol, hardCap: E(1), durationOption: 0, creatorSharePercent: 0,
       tokenType: 0, rewardToken: ethers.ZeroAddress, taxWallet: ethers.ZeroAddress,
       buyTaxBps: 0, sellTaxBps: 0, rewardsBuyBps: 0, rewardsSellBps: 0, logoURI: "", description: "",
       ...overrides,
@@ -784,14 +784,14 @@ describe("Launch keeper", function () {
       maxContribution: E(0.02),
       startTime: start,
       endTime: start + 3600,
-      liquidityBps: 9445,
+      liquidityBps: 10000,
       liquidityAction: 1,
       lockDuration: 0,
       launchTime: start + 3600,
       whitelistEnabled: false,
     };
     const fee = await presaleFactory.quickCreationFee();
-    const tx = await presaleFactory.connect(alice).createQuickPresale(params, alice.address, 500, { value: fee });
+    const tx = await presaleFactory.connect(alice).createQuickPresale(params, alice.address, 0, { value: fee });
     const receipt = await tx.wait();
     const created = receipt.logs.map((l) => {
       try {

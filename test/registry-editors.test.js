@@ -143,9 +143,9 @@ describe("TokenMetadataRegistry editors", function () {
 
   // ------------------------------------------------------------ quick sale
 
-  /** Runs QuickLaunch.launch for carol: hard cap 1 ETH, 30 minutes, 5% creator share. */
+  /** Runs QuickLaunch.launch for carol: hard cap 1 ETH, 30 minutes, no creator share. */
   async function launchQuick(env, creator, overrides = {}) {
-    const o = { name: "Hood Flash", symbol: "HFLASH", hardCap: E(1), duration: 0, share: 5, ...overrides };
+    const o = { name: "Hood Flash", symbol: "HFLASH", hardCap: E(1), duration: 0, share: 0, ...overrides };
     const tx = await env.quickLaunch.connect(creator).launch(
       {
         name: o.name, symbol: o.symbol, hardCap: o.hardCap, durationOption: o.duration, creatorSharePercent: o.share,

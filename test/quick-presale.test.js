@@ -35,14 +35,14 @@ describe("Quick presale", function () {
     return wallets;
   }
 
-  /** The QuickParams struct of a launch: a Standard token, 1 ETH, 30 minutes, 5% share by default. */
+  /** The QuickParams struct of a launch: a Standard token, 1 ETH, 30 minutes, no creator share. */
   function quickParams(overrides = {}) {
     const o = {
       name: "Hood Flash",
       symbol: "HFLASH",
       hardCap: E(1),
       duration: 0, // 30 minutes
-      share: 5,
+      share: 0,
       tokenType: TYPE.Standard,
       rewardToken: ethers.ZeroAddress, // Rewards only
       taxWallet: ethers.ZeroAddress, // Tax and Rewards; zero = the creator
@@ -131,7 +131,7 @@ describe("Quick presale", function () {
     for (const w of wallets) await presale.connect(w).contribute({ value: amount });
   }
 
-  // Hard cap 1 ETH, share 5%: max 0.02 ETH per wallet, so 50 wallets fill the cap
+  // Hard cap 1 ETH, no creator share: max 0.02 ETH per wallet, so 50 wallets fill the cap
   async function quickFixture() {
     const env = await deployPlatform();
     const sale = await launchQuick(env);
@@ -176,11 +176,11 @@ describe("Quick presale", function () {
       expect(await presale.saleOwner()).to.equal(quickLaunch.target);
       expect(await presale.autoLaunch()).to.equal(true);
       expect(await presale.payoutRecipient()).to.equal(carol.address);
-      expect(await presale.creatorShareBps()).to.equal(500);
+      expect(await presale.creatorShareBps()).to.equal(0);
 
       expect(launched.creator).to.equal(carol.address);
       expect(launched.hardCap).to.equal(E(1));
-      expect(launched.creatorShareBps).to.equal(500);
+      expect(launched.creatorShareBps).to.equal(0);
       expect(launched.endTime).to.equal((await presale.getParams()).endTime);
       // A Standard token: no tax of its own, only the platform tax on DEX trades
       expect(launched.tokenType).to.equal(TYPE.Standard);
@@ -211,7 +211,7 @@ describe("Quick presale", function () {
       expect(p.maxContribution).to.equal(E(0.02));
       expect(p.endTime - p.startTime).to.equal(1800);
       expect(p.launchTime).to.equal(p.endTime);
-      expect(p.liquidityBps).to.equal(9445);
+      expect(p.liquidityBps).to.equal(10000); // no creator share: the whole net raise
       expect(p.liquidityAction).to.equal(1); // Burn
       expect(p.lockDuration).to.equal(0);
       expect(p.whitelistEnabled).to.equal(false);
@@ -244,8 +244,8 @@ describe("Quick presale", function () {
       const slices = await metadataRegistry.tokenomicsOf(token.target);
       expect(slices.map((s) => [s.label, Number(s.bps)])).to.deep.equal([
         ["Presale", 5000],
-        ["Liquidity", 4250], // 42.5025% rounded half up
-        ["Burned", 750],
+        ["Liquidity", 4500], // 90% of the raise at the presale rate: 45% of the supply
+        ["Burned", 500],
       ]);
     });
 
@@ -282,7 +282,8 @@ describe("Quick presale", function () {
       await expectLaunchRevert(env, { hardCap: E(101) }, "hard cap out of range");
       await expectLaunchRevert(env, { hardCap: E(1) + 1n }, "hard cap not divisible by 4");
       await expectLaunchRevert(env, { duration: 4 }, "bad duration option");
-      await expectLaunchRevert(env, { share: 11 }, "share too high");
+      // Any creator share is refused: the cap is 0
+      await expectLaunchRevert(env, { share: 1 }, "share too high");
       await expectLaunchRevert(env, { tokenType: 3 }, "bad token type");
       // A Standard token carries no tax and no reward token
       await expectLaunchRevert(env, { buyTax: 100 }, "standard token has no tax");
@@ -339,7 +340,7 @@ describe("Quick presale", function () {
         maxContribution: E(0.02),
         startTime: start,
         endTime: start + 3600,
-        liquidityBps: 9445,
+        liquidityBps: 10000,
         liquidityAction: 1,
         lockDuration: 0,
         launchTime: start + 3600,
@@ -348,7 +349,7 @@ describe("Quick presale", function () {
       return { ...env, token, params };
     }
 
-    async function expectQuickRevert(ctx, overrides, reason, share = 500, value = QUICK_FEE) {
+    async function expectQuickRevert(ctx, overrides, reason, share = 0, value = QUICK_FEE) {
       const p = { ...ctx.params, ...overrides };
       await expect(
         ctx.presaleFactory.connect(ctx.alice).createQuickPresale(p, ctx.alice.address, share, { value })
@@ -364,7 +365,7 @@ describe("Quick presale", function () {
       const other = await ethers.getContractAt("StandardToken", await ctx.tokenFactory.allTokens(1));
       await other.connect(bob).approve(presaleFactory.target, ethers.MaxUint256);
       await expect(
-        presaleFactory.connect(bob).createQuickPresale({ ...params, token: other.target }, bob.address, 500, { value: QUICK_FEE })
+        presaleFactory.connect(bob).createQuickPresale({ ...params, token: other.target }, bob.address, 0, { value: QUICK_FEE })
       ).to.be.revertedWith("not quick launch");
       // Only the platform owner can change the quick launcher
       await expect(presaleFactory.connect(alice).setQuickLaunch(bob.address))
@@ -375,26 +376,26 @@ describe("Quick presale", function () {
         .withArgs(quickLaunch.target);
       // alice lost the role: the token owner alone cannot create a quick sale
       await expect(
-        presaleFactory.connect(alice).createQuickPresale(params, alice.address, 500, { value: QUICK_FEE })
+        presaleFactory.connect(alice).createQuickPresale(params, alice.address, 0, { value: QUICK_FEE })
       ).to.be.revertedWith("not quick launch");
       expect(token.target).to.not.equal(other.target);
     });
 
     it("accepts valid quick params from the quick launcher that owns the token", async function () {
       const ctx = await loadFixture(directFixture);
-      const tx = ctx.presaleFactory.connect(ctx.alice).createQuickPresale(ctx.params, ctx.alice.address, 500, { value: QUICK_FEE });
-      await expect(tx).to.emit(ctx.presaleFactory, "QuickPresaleCreated").withArgs(anyValue, ctx.token.target, ctx.alice.address, 500);
+      const tx = ctx.presaleFactory.connect(ctx.alice).createQuickPresale(ctx.params, ctx.alice.address, 0, { value: QUICK_FEE });
+      await expect(tx).to.emit(ctx.presaleFactory, "QuickPresaleCreated").withArgs(anyValue, ctx.token.target, ctx.alice.address, 0);
       await expect(tx).to.changeEtherBalances([ctx.treasury], [QUICK_FEE]);
       const presale = await ethers.getContractAt("Presale", await ctx.presaleFactory.allPresales(0));
-      await expect(tx).to.emit(presale, "QuickModeSet").withArgs(ctx.alice.address, 500);
+      await expect(tx).to.emit(presale, "QuickModeSet").withArgs(ctx.alice.address, 0);
       expect(await presale.autoLaunch()).to.equal(true);
       expect(await ctx.presaleFactory.isQuick(presale.target)).to.equal(true);
     });
 
     it("rejects the wrong fee", async function () {
       const ctx = await loadFixture(directFixture);
-      await expectQuickRevert(ctx, {}, "wrong creation fee", 500, E(0.1));
-      await expectQuickRevert(ctx, {}, "wrong creation fee", 500, 0n);
+      await expectQuickRevert(ctx, {}, "wrong creation fee", 0, E(0.1));
+      await expectQuickRevert(ctx, {}, "wrong creation fee", 0, 0n);
     });
 
     it("rejects a liquidity share that does not match the creator share", async function () {
@@ -436,7 +437,7 @@ describe("Quick presale", function () {
 
     it("quick sales cannot be cancelled", async function () {
       const ctx = await loadFixture(directFixture);
-      await ctx.presaleFactory.connect(ctx.alice).createQuickPresale(ctx.params, ctx.alice.address, 500, { value: QUICK_FEE });
+      await ctx.presaleFactory.connect(ctx.alice).createQuickPresale(ctx.params, ctx.alice.address, 0, { value: QUICK_FEE });
       const presale = await ethers.getContractAt("Presale", await ctx.presaleFactory.allPresales(0));
       await expect(presale.connect(ctx.alice).cancel()).to.be.revertedWith("quick sale cannot be cancelled");
       await expect(presale.connect(ctx.bob).cancel()).to.be.revertedWith("not sale owner");
@@ -451,7 +452,7 @@ describe("Quick presale", function () {
         .withArgs(E(0.05));
       await expectQuickRevert(ctx, {}, "wrong creation fee");
       await ctx.presaleFactory.setQuickCreationFee(QUICK_FEE);
-      await ctx.presaleFactory.connect(ctx.alice).createQuickPresale(ctx.params, ctx.alice.address, 500, { value: QUICK_FEE });
+      await ctx.presaleFactory.connect(ctx.alice).createQuickPresale(ctx.params, ctx.alice.address, 0, { value: QUICK_FEE });
       const presale = await ethers.getContractAt("Presale", await ctx.presaleFactory.allPresales(0));
       await expect(presale.connect(ctx.alice).setQuickMode(ctx.alice.address, 100)).to.be.revertedWith("not factory");
     });
@@ -480,14 +481,11 @@ describe("Quick presale", function () {
       const gross = E(0.9995);
       const platformFee = gross / 10n;
       const net = gross - platformFee;
-      const liquidityEth = (net * 9445n) / BPS;
-      const creatorEth = net - liquidityEth;
+      const liquidityEth = net;
       expect((await ethers.provider.getBalance(treasury.target)) - treasuryBefore).to.equal(platformFee);
-      // The creator gets the chosen 5% of the gross raise, within the rounding of liquidityBps
+      // The creator gets nothing: the whole net raise is liquidity
       const creatorGot = (await ethers.provider.getBalance(carol.address)) - creatorBefore;
-      expect(creatorGot).to.equal(creatorEth);
-      expect(creatorGot).to.be.lte((gross * 500n) / BPS);
-      expect(creatorGot).to.be.gte((gross * 500n) / BPS - gross / BPS);
+      expect(creatorGot).to.equal(0);
       // Liquidity got the rest, at the presale price, and the LP is burned
       expect(await weth.balanceOf(dead.target)).to.equal(liquidityEth);
       expect(await token.balanceOf(dead.target)).to.equal((liquidityEth * (await presale.getParams()).listingRate) / E(1));
@@ -841,7 +839,7 @@ describe("Quick presale", function () {
       let v = await lens.presaleView(presale.target);
       expect(v.quick).to.equal(true);
       expect(v.creator).to.equal(carol.address);
-      expect(v.creatorShareBps).to.equal(500);
+      expect(v.creatorShareBps).to.equal(0);
       expect(v.buyTaxBps).to.equal(0);
       expect(v.sellTaxBps).to.equal(0);
       expect(v.launchTime).to.equal(params.endTime);
@@ -947,7 +945,7 @@ describe("Quick presale", function () {
 
       // Everything else is the quick sale as usual
       expect(await presaleFactory.isQuick(presale.target)).to.equal(true);
-      expect(await presale.creatorShareBps()).to.equal(500);
+      expect(await presale.creatorShareBps()).to.equal(0);
       expect(await token.isExcludedFromFees(presale.target)).to.equal(true);
     });
 

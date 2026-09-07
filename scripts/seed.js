@@ -244,11 +244,12 @@ async function main() {
   };
   const hdoge = await hre.ethers.getContractAt("StandardToken", tokens[0]);
   const hoodsale = await hre.ethers.getContractAt("HoodSaleToken", d.hoodsale);
-  // Sale size of the HOODS presale (created further down)
+  // Sale size of the HOODS presale (created further down): 500 seats of 0.1 ETH, the shape
+  // the whitelist raffle fills (seats = hard cap / max contribution)
   const hsShape = {
-    presaleRate: ETH(1_000_000), // 40M HOODS on sale (40%)
-    listingRate: ETH(800_000), // ~23M in liquidity (23.04%)
-    hardCap: ETH(40),
+    presaleRate: ETH(800_000), // 40M HOODS on sale (40%)
+    listingRate: ETH(640_000), // ~25M in liquidity (24.96%)
+    hardCap: ETH(50),
     liquidityBps: 8000,
   };
   const plans = {
@@ -299,15 +300,19 @@ async function main() {
   console.log("Team locks:", { hdoge: hdogeTeamLock, hoodsale: hoodsaleTeamLock });
 
   // --- the HOODS presale (the platform's flagship sale) ---
+  // Upcoming and whitelist only, the state the whitelist raffle attaches to: every wallet puts
+  // in exactly 0.1 ETH, so the 50 ETH hard cap is 500 seats. The list is empty until the raffle
+  // result is written to it; the sale starts two weeks out to leave room for the raffle.
   const hsNow = await nowTs();
+  const hsStart = hsNow + 14 * 24 * 3600;
   const hsParams = {
     token: d.hoodsale,
     ...hsShape,
-    softCap: ETH(15),
-    minContribution: ETH(0.05),
-    maxContribution: ETH(2),
-    startTime: hsNow + 5,
-    endTime: hsNow + 21 * 24 * 3600,
+    softCap: ETH(12.5),
+    minContribution: ETH(0.1),
+    maxContribution: ETH(0.1),
+    startTime: hsStart,
+    endTime: hsStart + 2 * 24 * 3600,
     liquidityAction: 0, // liquidity is locked
     lockDuration: 365 * 24 * 3600,
     launchTime: 0,
@@ -317,18 +322,6 @@ async function main() {
   await (await hoodsale.approve(presaleFactory.target, hsRequired)).wait();
   await (await presaleFactory.createPresale(hsParams, { value: await presaleFactory.creationFee() })).wait();
   const hoodsalePresale = await presaleFactory.allPresales((await presaleFactory.allPresalesLength()) - 1n);
-
-  await hre.network.provider.send("evm_increaseTime", [10]);
-  await hre.network.provider.send("evm_mine");
-  const hsSale = await hre.ethers.getContractAt("Presale", hoodsalePresale);
-  await (await hsSale.addToWhitelist([alice.address, bob.address, carol.address])).wait();
-  for (const [signer, amount] of [
-    [alice, 2],
-    [bob, 1.5],
-    [carol, 0.75],
-  ]) {
-    await (await hsSale.connect(signer).contribute({ value: ETH(amount) })).wait();
-  }
   console.log("HOODS presale:", hoodsalePresale);
 
   const lens = await hre.ethers.getContractAt("HoodSaleLens", d.lens);
@@ -406,7 +399,7 @@ async function main() {
 
   // 7) Live quick presale: 2 ETH hard cap, 1 hour, the creator keeps 5% of the raise (max 0.04 ETH per wallet)
   const flash = await launchQuick(
-    carol, "Hood Flash", "HFLASH", 2, 1, 5, "hoodflash",
+    carol, "Hood Flash", "HFLASH", 2, 1, 0, "hoodflash",
     "Hood Flash is a quick presale: fixed rules, automatic launch at the hard cap or at the end, tokens delivered without a claim."
   );
   const flashSale = await hre.ethers.getContractAt("Presale", flash.presale);
@@ -432,7 +425,7 @@ async function main() {
   // 8) Quick presale that already launched: 1 ETH hard cap filled by 50 wallets (2% each),
   //    the filling contribution launched it and paid the first 20 wallets, distribute() did the rest
   const spark = await launchQuick(
-    dave, "Hood Spark", "HSPARK", 1, 0, 10, "hoodspark",
+    dave, "Hood Spark", "HSPARK", 1, 0, 0, "hoodspark",
     "Hood Spark filled its hard cap within minutes and launched automatically. Liquidity is burned and every participant received their tokens."
   );
   const sparkSale = await hre.ethers.getContractAt("Presale", spark.presale);
@@ -448,7 +441,7 @@ async function main() {
   // 9) Live quick presale with a creator tax: a TaxToken paid to the creator, 2% on buys and
   //    2% on sells on top of the platform tax, fixed forever (the token has no owner)
   const htax = await launchQuick(
-    bob, "Hood Tax", "HTAX", 2, 2, 5, "hoodtax",
+    bob, "Hood Tax", "HTAX", 2, 2, 0, "hoodtax",
     "Hood Tax is a quick presale whose token carries a 2% creator tax on every pool buy and sell, fixed at launch.",
     { tokenType: 1, buyTax: 200, sellTax: 200 }
   );
@@ -462,7 +455,7 @@ async function main() {
   //     pool buy and sell) and 1%/1% marketing goes to carol; 2 ETH hard cap filled by 50 wallets
   //     (0.04 ETH each), then a few DEX trades, one reward distribution and fresh pending rewards
   const hyld = await launchQuick(
-    alice, "Hood Yield", "HYLD", 2, 1, 5, "hoodyield",
+    alice, "Hood Yield", "HYLD", 2, 1, 0, "hoodyield",
     "Hood Yield pays its holders rewards in WETH: 3% of every pool buy and sell is swapped and shared per token held. 1% goes to marketing. The token is owned by the launchpad's QuickLaunch, which can change nothing.",
     { tokenType: 2, rewardToken: wethAddr, taxWallet: carol.address, buyTax: 100, sellTax: 100, rewardsBuy: 300, rewardsSell: 300 }
   );
@@ -507,7 +500,7 @@ async function main() {
   if (d.tsla) {
     const tslaToken = await hre.ethers.getContractAt("MockERC20", d.tsla);
     hstk = await launchQuick(
-      bob, "Hood Stock", "HSTK", 2, 1, 5, "hoodstock",
+      bob, "Hood Stock", "HSTK", 2, 1, 0, "hoodstock",
       "Hood Stock pays its holders dividends in tokenized Tesla stock: 3% of every pool buy and sell is swapped through Uniswap V3 into TSLA and shared per token held.",
       { tokenType: 2, rewardToken: d.tsla, taxWallet: bob.address, buyTax: 100, sellTax: 100, rewardsBuy: 300, rewardsSell: 300 }
     );

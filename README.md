@@ -42,7 +42,7 @@ Sourcify links have the form `https://repo.sourcify.dev/4663/<address>`, Blocksc
 |---|---|---|---|
 | PresaleFactory | `0x8dcC19e98713C2EC024dd337Edea18BEBC490942` | [exact match](https://repo.sourcify.dev/4663/0x8dcC19e98713C2EC024dd337Edea18BEBC490942) | [address](https://robinhoodchain.blockscout.com/address/0x8dcC19e98713C2EC024dd337Edea18BEBC490942) |
 | PresaleCode | `0xADe97b179f1dC0776452BC6BBb83A27447A17C14` | [repository](https://repo.sourcify.dev/4663/0xADe97b179f1dC0776452BC6BBb83A27447A17C14) | [address](https://robinhoodchain.blockscout.com/address/0xADe97b179f1dC0776452BC6BBb83A27447A17C14) |
-| QuickLaunch | `0xa6aCfa20DC3165e36AdB02BCF1C178C151ed751f` | [exact match](https://repo.sourcify.dev/4663/0xa6aCfa20DC3165e36AdB02BCF1C178C151ed751f) | [address](https://robinhoodchain.blockscout.com/address/0xa6aCfa20DC3165e36AdB02BCF1C178C151ed751f) |
+| QuickLaunch | `0x560576D986df033158f185167E8cdabE0Cf871fD` | [exact match](https://repo.sourcify.dev/4663/0x560576D986df033158f185167E8cdabE0Cf871fD) | [address](https://robinhoodchain.blockscout.com/address/0x560576D986df033158f185167E8cdabE0Cf871fD) |
 | TokenFactory | `0x7BD7c2d1f37215de6DE59bC7fD92eA3649d3Cdbf` | [match](https://repo.sourcify.dev/4663/0x7BD7c2d1f37215de6DE59bC7fD92eA3649d3Cdbf) | [address](https://robinhoodchain.blockscout.com/address/0x7BD7c2d1f37215de6DE59bC7fD92eA3649d3Cdbf) |
 | RewardsTokenDeployer | `0x06286D7e4187cD1D720aC463bd6F00Eb6b93C1fD` | [exact match](https://repo.sourcify.dev/4663/0x06286D7e4187cD1D720aC463bd6F00Eb6b93C1fD) | [address](https://robinhoodchain.blockscout.com/address/0x06286D7e4187cD1D720aC463bd6F00Eb6b93C1fD) |
 | Treasury | `0x52C4fa5E853e556000429763A50cd9A0cdA971e7` | [exact match](https://repo.sourcify.dev/4663/0x52C4fa5E853e556000429763A50cd9A0cdA971e7) | [address](https://robinhoodchain.blockscout.com/address/0x52C4fa5E853e556000429763A50cd9A0cdA971e7) |
@@ -81,7 +81,7 @@ the live settings and are listed for completeness.
 | Token creation fee | none | none | not present | `TokenFactory` has no fee |
 | Platform token tax on pool buys and sells | 0.25% | 0.25% | 0.5% (`MAX_PLATFORM_TAX_BPS`) | `TokenFactory.platformTaxBps`, immutable in each created token; paid in tokens to the Treasury |
 | Total token tax (platform plus owner defined) | up to 10% | | 10% (`MAX_TOTAL_TAX_BPS`) | enforced in `PlatformTaxBase` per direction |
-| Quick presale creator share of the gross raise | 0 to 10%, chosen by the creator | | 10% (`MAX_CREATOR_SHARE_BPS`) | stored on the sale as `creatorShareBps` |
+| Quick presale creator share of the gross raise | none | | 0 (`QuickLaunch.MAX_CREATOR_SHARE_PERCENT`); the factory cap of 10% (`MAX_CREATOR_SHARE_BPS`) is unreachable because only `QuickLaunch` may create quick sales | stored on the sale as `creatorShareBps`, always 0 for sales created by this generation |
 | Quick token creator tax | at most 5% per side | | 5% (`MAX_CREATOR_TAX_BPS`) | `QuickLaunch` |
 | HOODS token tax | 3% | 3% | fixed (`TAX_BPS`) | `HoodSaleToken`, split between marketing and the buyback reserve |
 | Treasury buyback reserve | 30% of incoming ETH | 30% | 100% | `Treasury.buybackBps` |
