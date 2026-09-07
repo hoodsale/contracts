@@ -57,6 +57,8 @@ const FQN = {
   Treasury: "contracts/Treasury.sol:Treasury",
   LiquidityLocker: "contracts/LiquidityLocker.sol:LiquidityLocker",
   HoodSaleToken: "contracts/HoodSaleToken.sol:HoodSaleToken",
+  // The stand-in of the HOODS rehearsal (scripts/rehearse-hoodsale.js): the same constructor
+  HoodSaleRehearsalToken: "contracts/test/HoodSaleRehearsalToken.sol:HoodSaleRehearsalToken",
   HoodSaleLens: "contracts/HoodSaleLens.sol:HoodSaleLens",
   TokenMetadataRegistry: "contracts/TokenMetadataRegistry.sol:TokenMetadataRegistry",
   PresaleCode: "contracts/PresaleCode.sol:PresaleCode",
@@ -71,6 +73,7 @@ const DEPLOYMENT_KEYS = {
   tokenFactory: "TokenFactory",
   presaleFactory: "PresaleFactory",
   hoodsale: "HoodSaleToken",
+  hoodsaleRehearsal: "HoodSaleRehearsalToken",
   metadataRegistry: "TokenMetadataRegistry",
   lens: "HoodSaleLens",
   presaleCode: "PresaleCode",
@@ -226,6 +229,7 @@ const PLATFORM_CONSTRUCTORS = {
   TokenFactory: ["address", "address", "address"],
   PresaleFactory: ["address", "address", "address", "address", "address"],
   HoodSaleToken: ["address", "address", "address", "address"],
+  HoodSaleRehearsalToken: ["address", "address", "address", "address"],
   HoodSaleLens: ["address", "address", "address"],
   TokenMetadataRegistry: ["address"],
   PresaleCode: [],
@@ -513,6 +517,7 @@ async function detect(provider, address, code, o) {
       "TokenFactory",
       "PresaleFactory",
       "HoodSaleToken",
+      "HoodSaleRehearsalToken",
       "HoodSaleLens",
       "TokenMetadataRegistry",
       "StandardTokenDeployer",
@@ -1066,8 +1071,9 @@ async function reconstructPlatform(provider, address, det, o) {
     TokenFactory: ["treasury", "router"],
     PresaleFactory: ["treasury", "tokenFactory", "locker", "router"],
     HoodSaleToken: ["router", "treasury", "marketingWallet"],
+    HoodSaleRehearsalToken: ["router", "treasury", "marketingWallet"],
   }[name];
-  const abi = { Treasury: TREASURY_ABI, TokenFactory: TOKEN_FACTORY_ABI, PresaleFactory: PRESALE_FACTORY_ABI, HoodSaleToken: HOODSALE_ABI }[name];
+  const abi = { Treasury: TREASURY_ABI, TokenFactory: TOKEN_FACTORY_ABI, PresaleFactory: PRESALE_FACTORY_ABI, HoodSaleToken: HOODSALE_ABI, HoodSaleRehearsalToken: HOODSALE_ABI }[name];
   const c = new ethers.Contract(address, abi, provider);
 
   let owner = creation ? creation.owner : null;
@@ -1096,7 +1102,7 @@ async function reconstructPlatform(provider, address, det, o) {
     values.length = 0;
     for (const g of getters) values.push(await c[g]());
     source = "current";
-    const mutable = { TokenFactory: "treasury/router", PresaleFactory: "treasury/locker/router", HoodSaleToken: "treasury/marketingWallet" }[name];
+    const mutable = { TokenFactory: "treasury/router", PresaleFactory: "treasury/locker/router", HoodSaleToken: "treasury/marketingWallet", HoodSaleRehearsalToken: "treasury/marketingWallet" }[name];
     if (mutable) warnings.push(`${mutable} taken from current state; they are mutable and may differ from the constructor values`);
   }
   for (const g of getters) sources[g] = source;
