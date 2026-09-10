@@ -159,6 +159,14 @@ async function main() {
   } else if (p.whitelistEnabled) {
     steps.push("Add the whitelist wallets to the new sale when the applications close.");
   }
+  if (p.whitelistEnabled) {
+    steps.push(
+      "Re-key the application form. frontend/src/config/whitelistForms.js is keyed on the SALE\n" +
+        "     address, so it points at the dead sale after every recreation. Move the entry to\n" +
+        `       '${created}': '<the same form URL>',\n` +
+        "     or the new page shows no Apply for the whitelist link."
+    );
+  }
   steps.push(
     "Keep the cancelled sale out of the lists. In frontend/src/config/hidden.js, under\n" +
       `     the same chain id, add\n` +

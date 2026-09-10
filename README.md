@@ -41,7 +41,7 @@ Sourcify links have the form `https://repo.sourcify.dev/4663/<address>`, Blocksc
 | Contract | Address | Sourcify | Blockscout |
 |---|---|---|---|
 | PresaleFactory | `0x8dcC19e98713C2EC024dd337Edea18BEBC490942` | [exact match](https://repo.sourcify.dev/4663/0x8dcC19e98713C2EC024dd337Edea18BEBC490942) | [address](https://robinhoodchain.blockscout.com/address/0x8dcC19e98713C2EC024dd337Edea18BEBC490942) |
-| PresaleCode | `0xADe97b179f1dC0776452BC6BBb83A27447A17C14` | [repository](https://repo.sourcify.dev/4663/0xADe97b179f1dC0776452BC6BBb83A27447A17C14) | [address](https://robinhoodchain.blockscout.com/address/0xADe97b179f1dC0776452BC6BBb83A27447A17C14) |
+| PresaleCode | `0x78a7D0869D566257D44628e781ab3c694Ab9b409` | [repository](https://repo.sourcify.dev/4663/0x78a7D0869D566257D44628e781ab3c694Ab9b409) | [address](https://robinhoodchain.blockscout.com/address/0x78a7D0869D566257D44628e781ab3c694Ab9b409) |
 | QuickLaunch | `0xAFE71e8F922e740087af9d56091913022e3f76Fc` | [exact match](https://repo.sourcify.dev/4663/0xAFE71e8F922e740087af9d56091913022e3f76Fc) | [address](https://robinhoodchain.blockscout.com/address/0xAFE71e8F922e740087af9d56091913022e3f76Fc) |
 | TokenFactory | `0x7BD7c2d1f37215de6DE59bC7fD92eA3649d3Cdbf` | [match](https://repo.sourcify.dev/4663/0x7BD7c2d1f37215de6DE59bC7fD92eA3649d3Cdbf) | [address](https://robinhoodchain.blockscout.com/address/0x7BD7c2d1f37215de6DE59bC7fD92eA3649d3Cdbf) |
 | StandardTokenDeployer | `0x4b2c825EA2d159707DE11cBF58373151bF7f0DDA` | [exact match](https://repo.sourcify.dev/4663/0x4b2c825EA2d159707DE11cBF58373151bF7f0DDA) | [address](https://robinhoodchain.blockscout.com/address/0x4b2c825EA2d159707DE11cBF58373151bF7f0DDA) |

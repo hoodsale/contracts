@@ -9,7 +9,7 @@
   "metadataRegistry": "0x10A6B866EE01407C09a61C709d10AcFd93a8dCA6",
   "lens": "0xD0a952c8AdDd963075D0E1e0e7c2499f8ee1179d",
   "marketingWallet": "0x6907390Dd293f7a759ef66E14fdAf6D351299634",
-  "presaleCode": "0xADe97b179f1dC0776452BC6BBb83A27447A17C14",
+  "presaleCode": "0x78a7D0869D566257D44628e781ab3c694Ab9b409",
   "quickLaunch": "0xAFE71e8F922e740087af9d56091913022e3f76Fc",
   "previousPresaleFactory": "0x931e39A823E1c177cfF1952bD53d9Bc6ED118A3b",
   "previousLens": "0x19F7D7229698A49742538Cfe3C7d056EADFf1bc0",
@@ -25,5 +25,6 @@
   "taxDeployer": "0x6cf85c050c2C0eC7266e12a95258E921Ca3F34f8",
   "rewardsTokenCode": "0xDC7ec9F5AA960418CcfA5042fc0AF1d2488CAbb9",
   "previousStandardDeployer": "0x405c31293CAd7b88ee3caD93eE3B4dBe68a5D54F",
-  "previousTaxDeployer": "0x3A8dC483dcc56953B6EbF7Aa9c2fE6d5c17A4CF7"
+  "previousTaxDeployer": "0x3A8dC483dcc56953B6EbF7Aa9c2fE6d5c17A4CF7",
+  "previousPresaleCode": "0xADe97b179f1dC0776452BC6BBb83A27447A17C14"
 }
