@@ -184,9 +184,19 @@ contract Presale is ReentrancyGuard {
         _;
     }
 
-    /// @dev addLiquidityETH may refund leftover ETH; if it is not accepted, finalize
-    ///      reverts and the funds get locked. The refund is forwarded to the payout recipient at the end.
-    receive() external payable {}
+    /// @notice A plain ETH transfer to the sale is treated as a contribution, on exactly the
+    ///         terms contribute() applies: the sale has to be running, the sender has to be on
+    ///         the whitelist when there is one, and the amount has to sit inside the per wallet
+    ///         limits and under the hard cap. Anything else reverts and the sender keeps the ETH.
+    ///         Before this, such a transfer was accepted and recorded nowhere, so the sender lost
+    ///         it: no tokens, no refund.
+    /// @dev The one exception is the router, which refunds leftover ETH while liquidity is being
+    ///      added. That refund must never revert or finalize would fail and the sale would be
+    ///      stuck; it is forwarded to the payout recipient at the end of finalize.
+    receive() external payable {
+        if (msg.sender == address(router)) return;
+        _contribute();
+    }
 
     constructor(
         PresaleParams memory params_,
@@ -224,7 +234,14 @@ contract Presale is ReentrancyGuard {
 
     // ------------------------------------------------------------- contribution
 
-    function contribute() external payable nonReentrant {
+    function contribute() external payable {
+        _contribute();
+    }
+
+    /// @dev The contribution itself, shared by contribute() and by a plain transfer. The guard
+    ///      sits here rather than on the entry points: the router's refund reaches receive()
+    ///      from inside finalize, where the guard is already held, and it returns before this.
+    function _contribute() private nonReentrant {
         require(state == State.Active, "not active");
         require(block.timestamp >= params.startTime, "not started");
         require(block.timestamp <= params.endTime, "ended");

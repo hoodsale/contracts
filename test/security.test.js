@@ -135,9 +135,18 @@ describe("Security regressions", function () {
       expect(await token.balanceOf(alice.address)).to.equal(E("3000")); // 3 ETH * 1000
     });
 
-    it("accepts ETH so a router refund cannot brick finalize", async function () {
-      const { presale, carol } = await loadFixture(saleFixture);
-      await expect(carol.sendTransaction({ to: presale.target, value: E("0.001") })).to.not.be.reverted;
+    // A plain transfer is a contribution now, on the same terms as contribute(), so a stray one
+    // reverts rather than being swallowed. The router is the exception: its leftover refund
+    // arrives during finalize and must never revert, or the sale would be stuck.
+    it("refuses a stray transfer instead of swallowing it, and still finalizes", async function () {
+      const { presale, params, carol } = await loadFixture(saleFixture);
+      // past the end time, so nothing about this transfer could ever be a valid contribution
+      await time.increaseTo(params.endTime + 10);
+      await expect(carol.sendTransaction({ to: presale.target, value: E("0.001") })).to.be.revertedWith("ended");
+      expect(await ethers.provider.getBalance(presale.target)).to.equal(await presale.totalRaised());
+
+      await expect(presale.finalize(0, 0)).to.emit(presale, "Finalized");
+      expect(Number(await presale.status())).to.equal(5);
     });
   });
 
