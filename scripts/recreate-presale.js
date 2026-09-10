@@ -159,7 +159,16 @@ async function main() {
   } else if (p.whitelistEnabled) {
     steps.push("Add the whitelist wallets to the new sale when the applications close.");
   }
-  steps.push("Set the sale profile and description on the new page.");
+  steps.push(
+    "Keep the cancelled sale out of the lists. In frontend/src/config/hidden.js, under\n" +
+      `     the same chain id, add\n` +
+      `       '${old}', // replaced by ${created}\n` +
+      "     Its page still opens by address, which is what the redirect above relies on."
+  );
+  steps.push(
+    "Nothing to redo for the profile: the description, image and links live on the token,\n" +
+      "     not on the sale, so the new page reads them already."
+  );
   console.log("");
   console.log("Next");
   steps.forEach((s, i) => console.log(`  ${i + 1}. ${s}`));
