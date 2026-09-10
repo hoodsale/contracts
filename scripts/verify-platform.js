@@ -11,7 +11,7 @@
 // "router" (Uniswap, external contract) and "marketingWallet" (EOA) are skipped.
 // "Already Verified" responses count as success; a summary table is printed at the end.
 
-const { verifyAddresses, loadDeployments, optionsFromEnv, printSummary, STATUS } = require("./verify-contract");
+const { verifyAddresses, loadDeployments, optionsFromEnv, printSummary, explorerBaseUrl, STATUS } = require("./verify-contract");
 
 const ORDER = [
   ["treasury", "Treasury"],
@@ -70,7 +70,7 @@ async function run(hre, options = {}) {
   log(`[verify-platform] network ${hre.network.name}, ${targets.length} contracts${options.dryRun ? " (DRY_RUN)" : ""}`);
   const results = await verifyAddresses(hre, targets, { ...options, deployments, quiet: true });
   const all = [...results, ...skipped];
-  if (!options.quiet) printSummary(all, log);
+  if (!options.quiet) printSummary(all, log, await explorerBaseUrl(hre));
   return all;
 }
 

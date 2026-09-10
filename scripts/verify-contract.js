@@ -388,11 +388,18 @@ async function verifyAddresses(hre, targets, options = {}) {
     log(`[verify] -> ${r.status}${r.message ? ": " + r.message : ""}`);
     results.push(r);
   }
-  if (!options.quiet) printSummary(results, options.log);
+  if (!options.quiet) printSummary(results, options.log, await explorerBaseUrl(hre));
   return results;
 }
 
-function printSummary(results, log = console.log) {
+/** The explorer's browser URL for the current network, without a trailing slash, or null. */
+async function explorerBaseUrl(hre) {
+  const chainId = Number((await hre.ethers.provider.getNetwork()).chainId);
+  const chain = chainConfigFor(hre, chainId);
+  return chain ? chain.urls.browserURL.replace(/\/$/, "") : null;
+}
+
+function printSummary(results, log = console.log, browserUrl = null) {
   const rows = results.map((r) => ({
     label: r.label || "",
     address: r.address,
@@ -412,6 +419,26 @@ function printSummary(results, log = console.log) {
   for (const r of results) counts[r.status] = (counts[r.status] || 0) + 1;
   log("");
   log("summary: " + Object.entries(counts).map(([k, v]) => `${k}=${v}`).join(", "));
+
+  // Sourcify is a success the flow stops on, so the explorer is never asked. They are separate
+  // indexes: a contract can read "unverified" on Blockscout while Sourcify holds an exact match.
+  // Blockscout also fills itself in from its own bytecode database, which is why every sale used
+  // to appear verified without anybody submitting it: they all shared one already-known bytecode.
+  // A build with new bytecode has nothing to match until one instance of it is submitted by hand.
+  const sourcifyOnly = results.filter(
+    (r) => r.target === "sourcify" && (r.status === STATUS.VERIFIED || r.status === STATUS.ALREADY)
+  );
+  if (sourcifyOnly.length) {
+    log("");
+    log(`Sourcify holds ${sourcifyOnly.length === 1 ? "this contract" : `these ${sourcifyOnly.length} contracts`}, and the explorer was not asked.`);
+    log("The explorer keeps its own index, so it can still show the address as unverified. It also");
+    log("fills itself in from its bytecode database, so submitting one instance of a build by hand");
+    log("is enough for every later contract with the same bytecode. To submit one, open");
+    for (const r of sourcifyOnly) {
+      log(`  ${browserUrl ? `${browserUrl}/address/${r.address}` : r.address}/contract-verification`);
+    }
+    log("choose Solidity (Standard JSON input), and upload the package that FORCE_MANUAL=1 writes.");
+  }
 }
 
 function optionsFromEnv(hre) {
@@ -447,6 +474,7 @@ module.exports = {
   sourcifyApplies,
   verifyAddresses,
   printSummary,
+  explorerBaseUrl,
   probeExplorerApi,
   classifyVerifyError,
   getApiProbe,
