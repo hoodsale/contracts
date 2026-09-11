@@ -41,6 +41,12 @@ contract HoodSaleToken is ERC20, ERC20Burnable, Ownable {
     /// @notice Block in which the pool first received tokens, which is the listing transfer
     ///         inside Presale.finalize. 0 until then. Packed with inSwap and presaleFactory,
     ///         so _update reads it without paying for another storage slot.
+    /// @dev    On an Arbitrum chain block.number is the L1 block, so this window is one L1 block
+    ///         and can span several L2 blocks. That is not a weakness here: openingBuyBurn is a
+    ///         one-shot latch and the launch transaction takes it, so by the time anyone else
+    ///         could reach it there is nothing left to take. A caller who somehow got there
+    ///         first would be buying and burning with their own ETH, which costs this token
+    ///         nothing.
     uint64 public poolOpenedBlock;
     /// @notice One-shot latch for openingBuyBurn.
     bool public openingDone;
@@ -183,8 +189,9 @@ contract HoodSaleToken is ERC20, ERC20Burnable, Ownable {
     address private constant DEAD_ADDR = 0x000000000000000000000000000000000000dEaD;
 
     /// @notice Spends the ETH sent WITH THIS CALL buying HOODS from the pool and burns every
-    ///         token it buys. Permissionless, once, and only in the same block as the listing,
-    ///         so the only transaction that can reach it is the one that opened the pool.
+    ///         token it buys. Permissionless, once, and only in the same block as the listing
+    ///         (see poolOpenedBlock on what a block means on this chain), so in practice the
+    ///         only transaction that reaches it is the one that opened the pool.
     ///         Whatever is not spent goes back to the caller, so the contract never holds a
     ///         balance: there is no pot for anyone to spend later and nothing to strand.
     /// @dev    An ordinary external call, never reached from inside a transfer, so it is allowed
