@@ -24,6 +24,7 @@
 const hre = require("hardhat");
 const fs = require("fs");
 const path = require("path");
+const { sendSelfBatch, revokeSelfDelegation } = require("./lib/eip7702");
 
 const BPS = 10_000n;
 const same = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
@@ -174,36 +175,29 @@ async function main() {
   const minTokens = (liquidityTokens * 9900n) / BPS;
   const minEth = (liquidityEth * 9900n) / BPS;
 
-  const batchIface = new hre.ethers.Interface([
-    "function run((address to, uint256 value, bytes data)[] calls) external payable",
-  ]);
-  const data = batchIface.encodeFunctionData("run", [
-    [
-      [saleAddr, 0n, sale.interface.encodeFunctionData("finalize", [minTokens, minEth])],
-      [tokenAddr, openingEth, token.interface.encodeFunctionData("openingBuyBurn")],
-    ],
-  ]);
-
   const supplyBefore = await token.totalSupply();
-  let auth;
+  const rpcUrl = hre.network.config.url;
+  let rc;
   try {
-    auth = await signer.authorize({ address: batchAddr });
+    ({ receipt: rc } = await sendSelfBatch({
+      rpcUrl,
+      privateKey: process.env.DEPLOYER_KEY,
+      batchAddress: batchAddr,
+      calls: [
+        { to: saleAddr, value: 0n, data: sale.interface.encodeFunctionData("finalize", [minTokens, minEth]) },
+        { to: tokenAddr, value: openingEth, data: token.interface.encodeFunctionData("openingBuyBurn") },
+      ],
+      value: openingEth,
+      gasLimit: BigInt(process.env.GAS_LIMIT || "1500000"),
+    }));
   } catch (e) {
-    throw new Error(
-      "this signer cannot sign an EIP-7702 authorization: " +
-        (e.shortMessage || e.message) +
-        ". Run against a network whose account comes from DEPLOYER_KEY, not from the node."
-    );
+    check("the delegation was applied and the batch ran", false, (e.shortMessage || e.message || "").slice(0, 140));
+    console.log("");
+    console.log("Nothing was spent beyond gas, and the sale is still finalizable. Fix the cause and");
+    console.log(`re-run against the sale that already exists:  PRESALE=${saleAddr} OPENING_ETH=${E(openingEth)}`);
+    process.exitCode = 1;
+    return;
   }
-  const tx = await signer.sendTransaction({
-    to: signer.address,
-    data,
-    value: openingEth,
-    authorizationList: [auth],
-  });
-  console.log(`  sent          ${tx.hash}`);
-  const rc = await tx.wait();
-  console.log(`  mined         block ${rc.blockNumber}, gas ${rc.gasUsed}`);
 
   check("the delegation was applied and the batch ran", rc.gasUsed > 200000n, `gas ${rc.gasUsed}`);
   check("the sale is finalized", Number(await sale.status()) === 5);
@@ -278,8 +272,7 @@ async function main() {
   const addresses = { ...d, hoodsaleRehearsal: tokenAddr, launchBatch: batchAddr };
   fs.writeFileSync(file, JSON.stringify(addresses, null, 2) + "\n");
 
-  const revoke = await signer.authorize({ address: hre.ethers.ZeroAddress });
-  await (await signer.sendTransaction({ to: signer.address, authorizationList: [revoke] })).wait();
+  await revokeSelfDelegation({ rpcUrl, privateKey: process.env.DEPLOYER_KEY, log: () => {} });
   const code = await provider.getCode(signer.address);
   check("the wallet is an ordinary wallet again", code === "0x", code === "0x" ? "" : `code ${code}`);
 

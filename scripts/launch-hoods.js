@@ -25,6 +25,7 @@
 const hre = require("hardhat");
 const fs = require("fs");
 const path = require("path");
+const { sendSelfBatch, revokeSelfDelegation } = require("./lib/eip7702");
 
 const BPS = 10_000n;
 const same = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
@@ -154,27 +155,16 @@ async function main() {
     return;
   }
 
-  let auth;
-  try {
-    auth = await signer.authorize({ address: batchAddr });
-  } catch (e) {
-    throw new Error(
-      "this signer cannot sign an EIP-7702 authorization: " +
-        (e.shortMessage || e.message) +
-        ". Run against a network whose account comes from DEPLOYER_KEY, not from the node."
-    );
-  }
-  console.log(`  delegation    ${signer.address} -> ${batchAddr} for this transaction`);
-
-  const tx = await signer.sendTransaction({
-    to: signer.address,
-    data,
+  const rpcUrl = hre.network.config.url;
+  const gasLimit = BigInt(process.env.GAS_LIMIT || "1500000");
+  const { receipt: rc } = await sendSelfBatch({
+    rpcUrl,
+    privateKey: process.env.DEPLOYER_KEY,
+    batchAddress: batchAddr,
+    calls,
     value: openingEth,
-    authorizationList: [auth],
+    gasLimit,
   });
-  console.log(`  sent          ${tx.hash}`);
-  const rc = await tx.wait();
-  console.log(`  mined         block ${rc.blockNumber}, gas ${rc.gasUsed}`);
 
   const burnEvents = await token.queryFilter(token.filters.OpeningBuyBurn(), rc.blockNumber, rc.blockNumber);
   if (burnEvents.length) {
@@ -193,11 +183,8 @@ async function main() {
   if (process.env.KEEP_DELEGATION === "1") {
     console.log("\nKEEP_DELEGATION=1: the wallet is still delegated to LaunchBatch.");
   } else {
-    const revoke = await signer.authorize({ address: hre.ethers.ZeroAddress });
-    const rtx = await signer.sendTransaction({ to: signer.address, authorizationList: [revoke] });
-    await rtx.wait();
-    const code = await hre.ethers.provider.getCode(signer.address);
-    console.log(`\nDelegation revoked in ${rtx.hash}; wallet code is now ${code === "0x" ? "empty" : code}`);
+    console.log("");
+    await revokeSelfDelegation({ rpcUrl, privateKey: process.env.DEPLOYER_KEY });
   }
 }
 
