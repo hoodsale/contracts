@@ -233,9 +233,12 @@ async function main() {
   console.log(`       '${oldSaleAddr}': '${saleAddr}',`);
   console.log(`  3. frontend/src/config/whitelistForms.js: move the form entry onto '${saleAddr}'`);
   console.log(`  4. frontend/src/config/hidden.js: add '${oldSaleAddr}'`);
-  console.log(`  5. Verify the new token and the new sale:`);
+  console.log("  5. The public mirror at github.com/hoodsale/contracts names the token in two tables");
+  console.log("     and in its deployment record. Copy deployments/robinhood.json across and replace");
+  console.log(`     the old address in README.md and SECURITY.md with '${tokenAddr}'.`);
+  console.log(`  6. Verify the new token and the new sale:`);
   console.log(`       ADDRESSES=${tokenAddr},${saleAddr} npx hardhat run scripts/verify-contract.js --network ${network}`);
-  console.log(`  6. Build and deploy the site, then add the whitelist wallets to ${saleAddr}`);
+  console.log(`  7. Build and deploy the site, then add the whitelist wallets to ${saleAddr}`);
   console.log("");
   console.log(`At launch:  PRESALE=${saleAddr} OPENING_ETH=<eth> npx hardhat run scripts/launch-hoods.js --network ${network}`);
 }
