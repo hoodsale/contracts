@@ -62,6 +62,7 @@ const FQN = {
   HoodSaleLens: "contracts/HoodSaleLens.sol:HoodSaleLens",
   TokenMetadataRegistry: "contracts/TokenMetadataRegistry.sol:TokenMetadataRegistry",
   PresaleCode: "contracts/PresaleCode.sol:PresaleCode",
+  LaunchBatch: "contracts/LaunchBatch.sol:LaunchBatch",
   RewardsTokenCode: "contracts/tokens/RewardsTokenCode.sol:RewardsTokenCode",
   QuickLaunch: "contracts/QuickLaunch.sol:QuickLaunch",
 };
@@ -233,6 +234,7 @@ const PLATFORM_CONSTRUCTORS = {
   HoodSaleLens: ["address", "address", "address"],
   TokenMetadataRegistry: ["address"],
   PresaleCode: [],
+  LaunchBatch: [],
   RewardsTokenCode: [],
   // The token type generation adds a dynamic address[] (the reward allowlist) and the previous
   // generation; both are read back from the contract instead of the creation-tx tail.
@@ -1016,7 +1018,7 @@ async function reconstructPlatform(provider, address, det, o) {
     meta: { creation: creation || null, sources, warnings, viaBytecode: !!det.viaBytecode },
   });
 
-  if (name === "LiquidityLocker" || name === "PresaleCode" || name === "RewardsTokenCode") {
+  if (name === "LiquidityLocker" || name === "PresaleCode" || name === "RewardsTokenCode" || name === "LaunchBatch") {
     sources.all = "no-constructor-args";
     return finish([], null);
   }

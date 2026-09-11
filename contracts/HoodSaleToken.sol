@@ -4,7 +4,7 @@ pragma solidity ^0.8.26;
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {IUniswapV2Router02, IUniswapV2Factory} from "./interfaces/IUniswapV2.sol";
+import {IUniswapV2Router02, IUniswapV2Factory, IUniswapV2Pair} from "./interfaces/IUniswapV2.sol";
 
 interface ITreasuryBuyback {
     function depositBuyback() external payable;
@@ -38,6 +38,12 @@ contract HoodSaleToken is ERC20, ERC20Burnable, Ownable {
     uint16 public marketingShareBps = 5_000;
 
     bool private inSwap;
+    /// @notice Block in which the pool first received tokens, which is the listing transfer
+    ///         inside Presale.finalize. 0 until then. Packed with inSwap and presaleFactory,
+    ///         so _update reads it without paying for another storage slot.
+    uint64 public poolOpenedBlock;
+    /// @notice One-shot latch for openingBuyBurn.
+    bool public openingDone;
 
     mapping(address => bool) public isAmmPair;
     mapping(address => bool) public isExcludedFromFees;
@@ -47,6 +53,7 @@ contract HoodSaleToken is ERC20, ERC20Burnable, Ownable {
     event SwapBack(uint256 tokensSwapped, uint256 ethReceived, uint256 marketingEth, uint256 buybackEth);
     event MarketingShareUpdated(uint16 bps);
     event PresaleFactorySet(address factory);
+    event OpeningBuyBurn(uint256 ethSpent, uint256 tokensBurned);
 
     modifier inSwapFlag() {
         inSwap = true;
@@ -135,6 +142,15 @@ contract HoodSaleToken is ERC20, ERC20Burnable, Ownable {
             return;
         }
 
+        // Arms the opening buy. The first time tokens ever move INTO the main pair is the
+        // listing transfer inside Presale.finalize -> router.addLiquidityETH, which lands
+        // before pair.mint() and therefore before any trade against the pool is possible.
+        // Two comparisons and, once ever, one write into a slot that is already loaded.
+        // Nothing here can revert.
+        if (poolOpenedBlock == 0 && to == mainPair && value > 0) {
+            poolOpenedBlock = uint64(block.number);
+        }
+
         bool excluded = isExcludedFromFees[from] || isExcludedFromFees[to];
 
         // On a sell, if the accumulated amount exceeds the threshold, swap-back runs first
@@ -154,6 +170,70 @@ contract HoodSaleToken is ERC20, ERC20Burnable, Ownable {
         }
 
         super._update(from, to, value);
+    }
+
+    // --------------------------------------------- opening buy and burn (one shot, listing block)
+
+    /// @notice Ceiling on the opening buy, as a share of the pool's ETH reserve read at the
+    ///         moment it runs: 15_000 is 150% of that reserve. The point of tying it to the
+    ///         reserve rather than to a fixed amount is that it scales with whatever the sale
+    ///         actually raised, so a small raise cannot be overpaid into. A compile-time
+    ///         constant; nobody, the owner included, can change it.
+    uint256 private constant OPEN_MAX_RESERVE_BPS = 15_000;
+    address private constant DEAD_ADDR = 0x000000000000000000000000000000000000dEaD;
+
+    /// @notice Spends the ETH sent WITH THIS CALL buying HOODS from the pool and burns every
+    ///         token it buys. Permissionless, once, and only in the same block as the listing,
+    ///         so the only transaction that can reach it is the one that opened the pool.
+    ///         Whatever is not spent goes back to the caller, so the contract never holds a
+    ///         balance: there is no pot for anyone to spend later and nothing to strand.
+    /// @dev    An ordinary external call, never reached from inside a transfer, so it is allowed
+    ///         to revert. A revert rolls back the launch transaction and the sale stays
+    ///         finalizable, which is why no failure here can quietly consume the shot. The pair
+    ///         is unlocked at this point because addLiquidityETH's pair.mint() returned before
+    ///         Presale.finalize() returned.
+    function openingBuyBurn() external payable returns (uint256 spent, uint256 burned) {
+        require(!openingDone, "opening done");
+        require(poolOpenedBlock == block.number, "not the listing block");
+        openingDone = true;
+
+        (uint256 rEth, uint256 rTok) = _mainReserves();
+        require(rEth > 0 && rTok > 0, "no reserves");
+
+        uint256 cap = (rEth * OPEN_MAX_RESERVE_BPS) / BPS;
+        spent = msg.value < cap ? msg.value : cap;
+        require(spent > 0, "nothing to spend");
+
+        // UniswapV2Pair.swap refuses to pay out to either of its own tokens, so this contract
+        // can never receive its own buy. The purchase goes to the burn address, which the
+        // constructor exempts from the tax, and is destroyed from there: a real totalSupply
+        // reduction rather than tokens parked in a dead wallet.
+        address[] memory path = new address[](2);
+        path[0] = router.WETH();
+        path[1] = address(this);
+
+        uint256 expected = (spent * 997 * rTok) / (rEth * 1000 + spent * 997);
+        uint256 before = balanceOf(DEAD_ADDR);
+        router.swapExactETHForTokens{value: spent}(
+            (expected * 9_900) / BPS, path, DEAD_ADDR, block.timestamp
+        );
+        burned = balanceOf(DEAD_ADDR) - before;
+        require(burned > 0, "bought nothing");
+        _burn(DEAD_ADDR, burned);
+
+        uint256 refund = msg.value - spent;
+        if (refund > 0) {
+            (bool ok, ) = msg.sender.call{value: refund}("");
+            require(ok, "refund failed");
+        }
+        emit OpeningBuyBurn(spent, burned);
+    }
+
+    function _mainReserves() private view returns (uint256 rEth, uint256 rTok) {
+        (uint112 r0, uint112 r1, ) = IUniswapV2Pair(mainPair).getReserves();
+        return IUniswapV2Pair(mainPair).token0() == address(this)
+            ? (uint256(r1), uint256(r0))
+            : (uint256(r0), uint256(r1));
     }
 
     function _swapBack() internal inSwapFlag {
