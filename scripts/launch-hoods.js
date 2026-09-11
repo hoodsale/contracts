@@ -154,7 +154,16 @@ async function main() {
     return;
   }
 
-  const auth = await signer.authorize({ address: batchAddr });
+  let auth;
+  try {
+    auth = await signer.authorize({ address: batchAddr });
+  } catch (e) {
+    throw new Error(
+      "this signer cannot sign an EIP-7702 authorization: " +
+        (e.shortMessage || e.message) +
+        ". Run against a network whose account comes from DEPLOYER_KEY, not from the node."
+    );
+  }
   console.log(`  delegation    ${signer.address} -> ${batchAddr} for this transaction`);
 
   const tx = await signer.sendTransaction({
