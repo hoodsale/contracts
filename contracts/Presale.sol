@@ -37,6 +37,37 @@ struct PresaleParams {
 interface IPresaleFactoryCallback {
     function onPresaleCancelled(address token) external;
     function launchKeeper() external view returns (address);
+    function tokenFactory() external view returns (address);
+}
+
+interface ITokenFactoryView {
+    function isPlatformToken(address token) external view returns (bool);
+}
+
+/// @dev A platform token that lists on Uniswap v4 instead of V2. V2 tokens answer neither call.
+interface IV4LaunchToken {
+    function poolVersion() external view returns (uint8);
+    function launcher() external view returns (address);
+    /// @dev 0 Standard, 1 Tax, 2 Rewards
+    function tokenType() external view returns (uint8);
+}
+
+/// @dev The launcher opens the v4 pool and burns or locks the position that holds the liquidity.
+interface IV4Launcher {
+    function launch(
+        address token,
+        uint256 tokenAmount,
+        uint8 liquidityAction,
+        uint64 lockDuration,
+        address saleOwner
+    ) external payable returns (bytes32 poolId, uint256 tokenId, uint256 lockId, uint128 liquidity);
+
+    /// @dev The tax the pool will charge, held until it opens: the marketing wallet, the marketing
+    ///      buy and sell bps, the rewards buy and sell bps, and whether the tax and the wallet lock.
+    function pendingConfig(address token)
+        external
+        view
+        returns (address, uint16, uint16, uint16, uint16, bool, bool);
 }
 
 /// @title Presale
@@ -95,6 +126,9 @@ contract Presale is ReentrancyGuard {
     /// @notice Gas a launch needs without any delivery (about 430k on the mock DEX, more on the
     ///         real router), with margin. See autoLaunchGas().
     uint256 public constant LAUNCH_BASE_GAS = 600_000;
+    /// @notice Gas a launch into a Uniswap v4 pool needs without any delivery: opening the pool
+    ///         and minting the position cost more than adding V2 liquidity. See autoLaunchGas().
+    uint256 public constant LAUNCH_BASE_GAS_V4 = 1_500_000;
 
     PresaleParams public params;
     address public immutable saleOwner;
@@ -111,6 +145,16 @@ contract Presale is ReentrancyGuard {
     uint64 public finalizedAt;
     uint256 public lpLockId;
     uint256 public lpAmount;
+    /// @notice The launcher that opens this sale's Uniswap v4 pool; zero when the sale lists on V2
+    address public immutable v4Launcher;
+    /// @notice The Uniswap v4 pool opened at launch; zero on a V2 sale
+    bytes32 public v4PoolId;
+    /// @notice The position that holds the v4 launch liquidity; zero on a V2 sale
+    uint256 public v4PositionId;
+    /// @notice Hash of the v4 tax as it stood when the sale was created. The pool opens only with
+    ///         that same tax: the owner could otherwise change it on the launcher after people
+    ///         bought, unlocking a tax or moving a wallet the sale was advertised with.
+    bytes32 public v4TermsHash;
     mapping(address => uint256) public contributionOf;
 
     /// @notice Quick mode: automatic launch, no cancel, leftover tokens burned, inline delivery.
@@ -178,6 +222,8 @@ contract Presale is ReentrancyGuard {
     ///      transaction reverts instead of deferring, so that gas estimates rise to a value at which
     ///      the launch and its inline delivery really fit.
     error InsufficientGasForLaunch();
+    /// @notice The v4 tax is no longer the one the sale was created with, or does not fit the token
+    error V4TermsBroken();
 
     modifier onlySaleOwner() {
         require(msg.sender == saleOwner, "not sale owner");
@@ -195,6 +241,8 @@ contract Presale is ReentrancyGuard {
     ///      stuck; it is forwarded to the payout recipient at the end of finalize.
     receive() external payable {
         if (msg.sender == address(router)) return;
+        // The v4 launcher returns the ETH the position did not need, for the same reason.
+        if (v4Launcher != address(0) && msg.sender == v4Launcher) return;
         _contribute();
     }
 
@@ -217,6 +265,46 @@ contract Presale is ReentrancyGuard {
         platformFeeBps = platformFeeBps_;
         exitPenaltyBps = exitPenaltyBps_;
         whitelistEnabled = params_.whitelistEnabled;
+        v4Launcher = _detectV4Launcher(params_.token, msg.sender);
+        if (v4Launcher != address(0)) v4TermsHash = keccak256(_v4Terms());
+    }
+
+    /// @dev The launcher's pending tax for this sale's token, as it returns it.
+    function _v4Terms() private view returns (bytes memory data) {
+        bool ok;
+        (ok, data) = v4Launcher.staticcall(abi.encodeCall(IV4Launcher.pendingConfig, (params.token)));
+        require(ok && data.length == 224, "no v4 tax");
+    }
+
+    /// @dev The launcher a Uniswap v4 token was created by, or zero for a V2 listing. Only the
+    ///      platform's own tokens are trusted to name a launcher, so a look-alike token cannot
+    ///      point the launch at a contract of its own.
+    function _detectV4Launcher(address token, address factory_) private view returns (address) {
+        (bool ok, bytes memory data) = token.staticcall(abi.encodeCall(IV4LaunchToken.poolVersion, ()));
+        if (!ok || data.length < 32 || abi.decode(data, (uint8)) != 4) return address(0);
+        address tokenFactory = IPresaleFactoryCallback(factory_).tokenFactory();
+        if (tokenFactory == address(0) || !ITokenFactoryView(tokenFactory).isPlatformToken(token)) return address(0);
+        return IV4LaunchToken(token).launcher();
+    }
+
+    /// @notice Whether this sale lists on Uniswap v4 rather than V2.
+    function isV4Launch() public view returns (bool) {
+        return v4Launcher != address(0);
+    }
+
+    /// @notice Whether the pool can open with the v4 tax as it stands. It must be the tax the sale
+    ///         was created with, and fit the kind of token: a Standard token charges nothing and
+    ///         is locked that way, so no tax can start once the pool is open, and only a Rewards
+    ///         token has holders to pay a rewards share to.
+    function v4TermsHold() public view returns (bool) {
+        bytes memory data = _v4Terms();
+        // wallet, marketing buy, marketing sell, rewards buy, rewards sell, tax locked, wallet locked
+        uint256[7] memory t = abi.decode(data, (uint256[7]));
+        uint8 tokenType = IV4LaunchToken(params.token).tokenType();
+        return
+            keccak256(data) == v4TermsHash &&
+            (tokenType == 2 || t[3] + t[4] == 0) &&
+            (tokenType != 0 || (t[5] != 0 && t[1] + t[2] == 0));
     }
 
     /// @notice Switches the sale to quick mode. Only the factory can call it, and only while
@@ -435,19 +523,11 @@ contract Presale is ReentrancyGuard {
 
         _sendEth(treasury, platformFee);
 
-        address pair = _addLiquidity(liquidityTokens, liquidityEth, minLiquidityTokens, minLiquidityEth);
-        uint256 lpBal = IUniswapV2Pair(pair).balanceOf(address(this));
-        require(lpBal > 0, "no lp");
-        lpAmount = lpBal;
+        lpAmount = isV4Launch()
+            ? _listOnV4(liquidityTokens, liquidityEth)
+            : _listOnV2(liquidityTokens, liquidityEth, minLiquidityTokens, minLiquidityEth);
 
         IERC20 token = IERC20(params.token);
-
-        if (params.liquidityAction == LiquidityAction.Burn) {
-            IERC20(pair).safeTransfer(DEAD, lpBal);
-        } else {
-            IERC20(pair).forceApprove(address(locker), lpBal);
-            lpLockId = locker.lock(pair, lpBal, uint64(block.timestamp) + params.lockDuration, saleOwner);
-        }
 
         // Tokens needed for claims stay in the contract; leftover tokens return to the owner,
         // or are burned on a quick sale.
@@ -462,11 +542,50 @@ contract Presale is ReentrancyGuard {
         uint256 ethLeft = address(this).balance;
         if (ethLeft > 0) _sendEth(payoutRecipient, ethLeft);
 
-        emit Finalized(platformFee, liquidityEth, liquidityTokens, lpBal);
+        emit Finalized(platformFee, liquidityEth, liquidityTokens, lpAmount);
 
         // Quick sale: the first participants get their tokens right away, within the gas the
         // launch has left. The rest is delivered by distribute().
         if (autoLaunch) _distribute(INLINE_DISTRIBUTION_MAX, INLINE_DELIVERY_GAS);
+    }
+
+    /// @dev Adds the liquidity to the token's Uniswap V2 pair and burns or locks the LP tokens.
+    ///      Returns the LP amount minted.
+    function _listOnV2(
+        uint256 liquidityTokens,
+        uint256 liquidityEth,
+        uint256 minLiquidityTokens,
+        uint256 minLiquidityEth
+    ) private returns (uint256 lpBal) {
+        address pair = _addLiquidity(liquidityTokens, liquidityEth, minLiquidityTokens, minLiquidityEth);
+        lpBal = IUniswapV2Pair(pair).balanceOf(address(this));
+        require(lpBal > 0, "no lp");
+
+        if (params.liquidityAction == LiquidityAction.Burn) {
+            IERC20(pair).safeTransfer(DEAD, lpBal);
+        } else {
+            IERC20(pair).forceApprove(address(locker), lpBal);
+            lpLockId = locker.lock(pair, lpBal, uint64(block.timestamp) + params.lockDuration, saleOwner);
+        }
+    }
+
+    /// @dev Opens the token's Uniswap v4 pool at the listing price through the launcher that
+    ///      created the token, and hands it the launch liquidity. The position holding that
+    ///      liquidity is burned or locked there, the same choice the sale was created with.
+    ///      The launch is refused while the tax differs from the one the sale was created with;
+    ///      the owner can put it back, and if nobody does the sale turns refundable when the
+    ///      finalize window closes. Returns the liquidity the position was opened with.
+    function _listOnV4(uint256 liquidityTokens, uint256 liquidityEth) private returns (uint256) {
+        if (!v4TermsHold()) revert V4TermsBroken();
+        IERC20(params.token).forceApprove(v4Launcher, liquidityTokens);
+        (bytes32 poolId, uint256 positionId, uint256 lockId, uint128 liquidity) = IV4Launcher(v4Launcher).launch{
+            value: liquidityEth
+        }(params.token, liquidityTokens, uint8(params.liquidityAction), params.lockDuration, saleOwner);
+        require(liquidity > 0, "no liquidity");
+        v4PoolId = poolId;
+        v4PositionId = positionId;
+        lpLockId = lockId;
+        return liquidity;
     }
 
     /// @dev Adds liquidity and returns the pair address.
@@ -630,11 +749,12 @@ contract Presale is ReentrancyGuard {
     ///         participant paid inline (at most INLINE_DISTRIBUTION_MAX).
     function autoLaunchGas() public view returns (uint256) {
         uint256 n = contributorCount < INLINE_DISTRIBUTION_MAX ? contributorCount : INLINE_DISTRIBUTION_MAX;
-        return LAUNCH_BASE_GAS + n * INLINE_DELIVERY_GAS;
+        return (isV4Launch() ? LAUNCH_BASE_GAS_V4 : LAUNCH_BASE_GAS) + n * INLINE_DELIVERY_GAS;
     }
 
     /// @dev Mirrors the guard in _addLiquidity: a pool with LP minted whose price is off the listing.
     function _poolBlocksLaunch() private view returns (bool) {
+        if (isV4Launch()) return false;
         address weth = router.WETH();
         address pair = IUniswapV2Factory(router.factory()).getPair(params.token, weth);
         if (pair == address(0) || IUniswapV2Pair(pair).totalSupply() == 0) return false;
@@ -656,6 +776,7 @@ contract Presale is ReentrancyGuard {
     /// @notice Deviation of the pool price from the listing price (bps). Returns 0 if there is
     ///         no pool, it is empty, or it is one-sided (the protection does not kick in).
     function poolPriceDeviationBps() public view returns (uint256) {
+        if (isV4Launch()) return 0;
         address weth = router.WETH();
         address pair = IUniswapV2Factory(router.factory()).getPair(params.token, weth);
         if (pair == address(0)) return 0;

@@ -136,9 +136,24 @@ async function main() {
   await (await ls.finalize(0, 0)).wait();
   await (await ls.connect(alice).claim()).wait(); // activity: Claim
 
+  // 4b) Completed launch whose LP is LOCKED rather than burned, so the sale page's liquidity
+  // lock card has a subject. The lock runs the default 180 days.
+  await (await tokenFactory.createStandardToken("Hood Vault", "HVAULT", ETH(1_000_000))).wait();
+  const lockedToken = await tokenFactory.allTokens((await tokenFactory.allTokensLength()) - 1n);
+  const lockedSale = await createPresale(lockedToken, { startsIn: 5, endsIn: 900 });
+  await hre.network.provider.send("evm_increaseTime", [10]);
+  await hre.network.provider.send("evm_mine");
+  const lks = await hre.ethers.getContractAt("Presale", lockedSale);
+  await (await lks.connect(alice).contribute({ value: ETH(4) })).wait();
+  await (await lks.connect(bob).contribute({ value: ETH(2) })).wait();
+  await hre.network.provider.send("evm_increaseTime", [1000]);
+  await hre.network.provider.send("evm_mine");
+  await (await lks.finalize(0, 0)).wait();
+  console.log("Launched with locked LP:", lockedSale, "lockId", (await lks.lpLockId()).toString());
+
   // 5) Cancelled presale: the contributor receives a full refund (activity: Refund)
   await (await tokenFactory.createStandardToken("Hood Ghost", "HGHOST", ETH(1_000_000))).wait();
-  const cancelledToken = await tokenFactory.allTokens(4);
+  const cancelledToken = await tokenFactory.allTokens((await tokenFactory.allTokensLength()) - 1n);
   const cancelled = await createPresale(cancelledToken, { startsIn: 5, endsIn: 900 });
   await hre.network.provider.send("evm_increaseTime", [10]);
   await hre.network.provider.send("evm_mine");

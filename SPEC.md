@@ -3,10 +3,10 @@
 A DeFi presale (launchpad) platform with a simple interface, running on Robinhood Chain (Arbitrum Orbit L2, gas token: ETH).
 
 ## Core Rule
-Presales can only be run with **token contracts created from the platform's own TokenFactory**. External tokens are not accepted (enforced by the factory registry check).
+Presales can only be run with **token contracts created from the platform's own TokenFactory**. External tokens are not accepted (enforced by the factory registry check). Tokens for a Uniswap v4 launch are created through the `V4Launcher`, which calls the same TokenFactory, so they pass the same check (see "Uniswap v4 Launch Mode").
 
 ## Token Types (TokenFactory)
-Token creation is **free** (gas only). Instead, **every platform token carries a 0.25% platform tax on buys and sells**; this tax is paid in the token itself directly to the platform Treasury (normal wallet transfers are tax free). The platform tax is fixed per token (adjustable from the factory for new tokens, up to at most 0.5%).
+Token creation is **free** (gas only). Instead, **every buy and sell of a platform token in its launch pool pays a 0.25% platform tax**. A token that lists on Uniswap V2 carries this tax itself and pays it in the token directly to the platform Treasury (normal wallet transfers are tax free); the platform tax is fixed per token (adjustable from the factory for new tokens, up to at most 0.5%). A token created for a Uniswap v4 launch carries no tax of its own: the pool's hook takes the same 0.25% in ETH, as a constant of the hook that the factory setting does not reach (see "Uniswap v4 Launch Mode").
 
 | Type | Description |
 |---|---|
@@ -15,10 +15,14 @@ Token creation is **free** (gas only). Instead, **every platform token carries a
 | Rewards | Platform tax + distributes dividends to holders in a chosen reward token (e.g. WETH) |
 | Stock Rewards | Same contract as Rewards; the reward token is a Robinhood tokenized stock (e.g. tAAPL) |
 
-**Tax cap:** the total buy or sell tax including the platform share is **at most 10%** (hard cap at the contract level, honeypots are prevented). The owner can later change their taxes up to the cap. Recommended default: 0.25% platform + 4% owner.
+Every type exists in both modes. On Uniswap v4 the Standard and Tax types share one plain token
+contract (`HoodSaleTokenV4`) and differ only in the tax their pool is configured with; the Rewards
+type is `RewardsTokenV4`.
+
+**Tax cap:** the total buy or sell tax including the platform share is **at most 10%** (hard cap at the contract level, honeypots are prevented: `PlatformTaxBase.MAX_TOTAL_TAX_BPS` on V2, `HoodSaleV4Hook.MAX_TOTAL_TAX_BPS` on v4). The owner can later change their taxes up to the cap. Recommended default: 0.25% platform + 4% owner.
 
 ### Token Owner Powers
-In created tokens, the following **never change:** name, symbol, 18 decimals, total supply
+In V2 tokens, the following **never change:** name, symbol, 18 decimals, total supply
 (no mint), platform tax and Treasury address, router and main liquidity pair, the 10% tax
 cap, swap threshold, token type, and the reward token in Rewards tokens. There is no function
 to pause transfers, blacklist, freeze wallets or seize balances.
@@ -29,9 +33,10 @@ marketing taxes (up to the cap), the marketing wallet, the reward swap route, re
 triggering a distribution; in every type, tax-exempt addresses, additional AMM pairs, manually
 converting the accumulated tax to ETH, transferring or renouncing ownership. The power to disable the
 automatic tax swap has been removed from platform tokens (the swap is already wrapped in try/catch
-so that it can never block a transfer).
+so that it can never block a transfer). A v4 token's owner has a different set of powers, listed
+under "Uniswap v4 Launch Mode".
 
-**Owner locks (one way).** `lock(flags)` on every platform token, owner only, takes any
+**Owner locks (one way).** `lock(flags)` on every V2 platform token, owner only, takes any
 combination of `LOCK_TAXES` (1, `setTaxes` disabled for good), `LOCK_TAX_WALLET` (2,
 `setMarketingWallet` disabled), `LOCK_FEE_EXEMPTIONS` (4, the owner can no longer call
 `excludeFromFees`; the presale factory keeps it for the presale contracts it creates) and
@@ -47,6 +52,8 @@ renounced state, and Lock / Renounce actions for the owner) and the sale page's 
 the same as pills. `TokenMetadataRegistry.controllerOf(token)` names the owner or, once there is
 no owner, `renouncedBy`; that account writes the profile (`canEdit`, next to the quick creator
 path) and the tokenomics (`setTokenomics`), so renouncing does not orphan the project page.
+A v4 token has no `lock`: its tax and wallet are locked on the pool's hook (`lockTaxes`,
+`lockMarketingWallet`), and renouncing the token freezes both.
 
 ## Presale
 - Creation fee: **none on mainnet**. It is a factory setting (`PresaleFactory.setCreationFee`); the contract default is 0.1 ETH, `scripts/set-fees.js` sets the live value (`CREATION_FEE_ETH=0`) and the frontend reads it from the chain (`creationFee`)
@@ -55,7 +62,7 @@ path) and the tokenomics (`setTokenomics`), so renouncing does not orphan the pr
 - **Early exit:** a participant can leave an active presale with a **10% penalty** (the penalty goes to the platform treasury)
 - **Cancel:** the owner can cancel a presale that has not been finalized at any time (especially if the softcap is not reached), participants get a full refund, tokens return to the owner
 - **Failure:** time is up + softcap not reached, participants can withdraw a full refund
-- **Finalize (launch):** if the softcap is met (or the hardcap is actually filled), the presale is finalized: the platform share is deducted, liquidity is added to the DEX, the LP is locked or burned, the remaining ETH goes to the owner, claim opens
+- **Finalize (launch):** if the softcap is met (or the hardcap is actually filled), the presale is finalized: the platform share is deducted, liquidity is added to the DEX (a Uniswap V2 pair, or for a v4 token a Uniswap v4 pool the launch opens), the LP tokens (or the v4 position) are locked or burned, the remaining ETH goes to the owner, claim opens
 - **Finalize window:** if not finalized within 14 days after the end, participants can claim a full refund (funds are not stuck if the owner disappears)
 
 **Rates in the creation form.** Both rates are tokens per 1 ETH (scaled by 1e18 on chain). The create
@@ -113,9 +120,10 @@ is the platform's only upfront revenue; it stays in the treasury even if the sal
 
 ## Quick Presale
 A quick presale is a token and a sale created in **one transaction** (`QuickLaunch.launch(QuickParams)`)
-with every rule fixed in advance. The creator chooses the name, the symbol, an optional logo and
-one line description, the hard cap (presets 2, 5, 10 ETH or 0.5 to 100 ETH), the length (30
-minutes, 1 hour, 2 hours or 6 hours) and the **token type** with its taxes and tax wallet. There
+with every rule fixed in advance. Quick sales list on Uniswap V2: `QuickLaunch` creates its tokens
+through the TokenFactory itself, never through the V4Launcher. The creator chooses the name, the
+symbol, an optional logo and one line description, the hard cap (presets 2, 5, 10 ETH or 0.5 to
+100 ETH), the length (30 minutes, 1 hour, 2 hours or 6 hours) and the **token type** with its taxes and tax wallet. There
 is no creator share of the raise: `QuickLaunch.MAX_CREATOR_SHARE_PERCENT` is 0, the
 `creatorSharePercent` field of `QuickParams` stays in the ABI and must be 0 (the two earlier
 generations allowed up to 10). Creation fee: **none on
@@ -327,6 +335,248 @@ tax on top of the platform tax: the creator tax of a Tax token, rewards plus mar
 Rewards token, 0 for a Standard token; `LaunchView` and `MomentumView` carry the two tax fields
 as well).
 
+## Uniswap v4 Launch Mode
+Since 18 September 2026 a normal presale can list its token on **Uniswap v4** instead of Uniswap
+V2. The V2 mode is untouched and stays the default; quick sales always use it. Both modes share
+the TokenFactory, the PresaleFactory, the Presale contract, the Treasury and the sale fees (the
+platform share of a raise and the early exit penalty); the platform share of a v4 trade is a
+constant of the hook, not the TokenFactory's tax setting. The sources are under `contracts/v4/`.
+
+**Why the tax moves to a hook.** On V2 the tax lives in the token's transfer function. That
+cannot work on v4: Uniswap's routers settle the exact amount they were quoted, so a token that
+shortens its own transfers makes every routed swap revert. A v4 token is therefore a plain
+ERC-20 with no transfer tax at all, and the tax is charged by the pool's hook, `HoodSaleV4Hook`,
+on the ETH side of each trade and only in the pool the hook is attached to. A wallet-to-wallet
+transfer, a presale claim and the token delivery are never taxed.
+
+| Contract | Role |
+|---|---|
+| `V4Launcher` | Creates v4 tokens through the TokenFactory, holds each token's tax settings until its pool opens, opens the pool when the token's sale finalizes |
+| `HoodSaleV4Hook` | The hook of every HoodSale v4 pool: charges the tax, holds the collected ETH until it is sent on, keeps each pool's tax settings. No owner |
+| `V4PositionLocker` | Holds a locked launch position until its unlock time |
+| `HoodSaleV4Router` | Exact-input buys and sells in a launch's own pool, for the site's trade box |
+| `HoodSaleV4Lens` | Read-only views of v4 launches for the site and `HoodSaleLens` |
+| `HoodSaleTokenV4` | The token of a Standard or Tax launch (`poolVersion()` returns 4, `tokenType` 0 or 1) |
+| `RewardsTokenV4` | The token of a Rewards launch; turns the holders' share into the reward token (`RewardsTokenCodeV4` holds its creation code) |
+| `StandardTokenDeployerV4`, `TaxTokenDeployerV4`, `RewardsTokenDeployerV4` | The TokenFactory's deployers: the V2 token for every creator except the V4Launcher, the v4 token for the V4Launcher |
+
+### A v4 launch, end to end
+
+1. **Token creation.** `V4Launcher.createToken(tokenType, {name, symbol, totalSupply,
+   rewardToken}, TaxConfig, owner)` (open to anyone, no fee) calls the TokenFactory's
+   `createStandardToken`, `createTaxToken` or `createRewardsToken` with the launcher as the
+   creator. The deployers see the launcher and build a `HoodSaleTokenV4` or a `RewardsTokenV4`
+   minted to the launcher, so the token lands in the factory's registry (`isPlatformToken`,
+   `TokenCreated`, `infoOf(token).creator` is the launcher) like any other. The launcher records
+   the tax config, moves the whole supply and the ownership to `owner`, remembers the caller
+   (`creatorOf`, `tokensOfCreator`) and emits `V4TokenCreated` and `TaxConfigUpdated`. A Rewards
+   token also gets its reward route at creation: the Uniswap V3 path the platform's QuickLaunch
+   stores for the reward token (`RewardsTokenDeployerV4.platformRouteV3For`), or none for WETH.
+2. **The tax waits on the launcher.** `TaxConfig` is `{marketingWallet, marketingBuyBps,
+   marketingSellBps, rewardsBuyBps, rewardsSellBps, taxLocked, walletLocked}`: the project share
+   paid to a wallet (the `marketing` fields), the holders' share (the `rewards` fields), and
+   whether the pool will open with the tax and the wallet locked. The wallet must be set (`ZeroWallet`) and each side, platform share included,
+   must stay within 10% (`TaxTooHigh`). Until the pool opens the token owner can replace the whole
+   config with `setTaxConfig(token, cfg)` (`NotTokenOwner` for anyone else, `AlreadyLaunched`
+   afterwards); `pendingConfig(token)` returns it and `isV4Token(token)` tells a v4 token apart.
+   Nothing is locked in before the launch.
+3. **The sale.** The token owner creates a normal presale through `PresaleFactory.createPresale`,
+   with every V2 rule: liquidity at least 51% of the net raise, lock at least 30 days or burn,
+   the 14 day finalize window. The Presale constructor recognizes a v4 token (it answers
+   `poolVersion() == 4` and is a platform token of the factory's TokenFactory), takes the launcher
+   the token names (`v4Launcher`, `isV4Launch()`) and stores `v4TermsHash`, the keccak256 of what
+   the launcher's `pendingConfig` returns for the token at that moment (the constructor reverts
+   with `no v4 tax` if that call fails). The factory takes the sale contract out of the rewards of
+   a Rewards token as usual; a v4 token has no fee exemptions to set.
+4. **The terms rule.** `v4TermsHold()` is true only while the pending config still hashes to
+   `v4TermsHash` and fits the token: only a Rewards token may have a holders' share, and a
+   Standard token must have no project tax and `taxLocked` set. Finalize reverts with
+   `V4TermsBroken` otherwise, so an owner who changes the tax, unlocks it or moves the wallet
+   after the sale was created cannot launch with it. The owner can put the config back, or cancel
+   (everyone is refunded in full); if nobody launches, every contribution becomes refundable once
+   14 days have passed since the end. The rule is checked at launch, not at creation. It applies to
+   every v4 sale created with the current PresaleCode, set at 16:30 UTC on 18 September 2026; the
+   one v4 sale created before that, `0x22a99Ff0235Fe688b9164d5723474b970a5b2112` (the platform's
+   first launch, `scripts/test-v4-launch.js`), launched a minute after it was created. The sale
+   page's tax card shows the tax the sale opens with and warns when the owner has changed it, and
+   the create presale form refuses a v4 token whose tax could never launch.
+5. **Finalize opens the pool.** The platform share, the liquidity amounts and the owner payout
+   are computed exactly as on V2. `_listOnV4` then approves the launcher for the liquidity tokens
+   and calls `V4Launcher.launch{value: liquidityEth}(token, liquidityTokens, liquidityAction,
+   lockDuration, saleOwner)`. The launcher accepts the call only from a presale of its
+   PresaleFactory (`NotPresale`) whose token is the one named (`TokenMismatch`), once per token
+   (`AlreadyLaunched`). It builds the pool key (native ETH as currency0, the token as currency1,
+   LP fee 500 = 0.05%, tick spacing 10, the hook), sets the opening price from the listing amounts
+   (`sqrtPriceX96 = sqrt(tokens * 2^192 / eth)`, tokens per ETH, `PriceOutOfRange` outside
+   Uniswap's bounds), registers the pool and its tax with the hook (`register`, launcher only; the
+   config's lock flags are carried over, and the Rewards token becomes the pool's rewards sink
+   when it has a holders' share) and initializes it on the PoolManager (the hook's
+   `beforeInitialize` accepts only the launcher and only a registered pool). The whole launch
+   liquidity is minted as **one full-range position** (from the lowest to the highest usable
+   tick) through the PositionManager and Permit2. Rounding dust in tokens and ETH goes back to the
+   sale, which passes the ETH on to its payout recipient. The sale stores `v4PoolId`,
+   `v4PositionId`, `lpLockId` and `lpAmount` (the position's liquidity); the launcher stores
+   `launchOf(token)` (`poolId, tokenId, lockId, burned, done`) and `poolKeyOf(token)` and emits
+   `Launched`. The rest of finalize (claims, leftover tokens, payout) is the V2 flow.
+6. **Lock or burn.** With the burn action the position NFT goes to `0x...dEaD`, so the liquidity
+   can never be withdrawn and its LP fees can never be collected. With the lock action it goes to
+   `V4PositionLocker`, which records a lock for the sale owner until `now + lockDuration`
+   (`lock`, only for launchers the locker's owner allowed, only for a position it already holds,
+   one lock per position). The lock owner can `unlock` after the unlock time (the NFT is sent to
+   them), `extendLock` (later only, never shorter), `transferLockOwnership` and `collectFees`,
+   which removes zero liquidity and sends the accrued LP fees, so the principal cannot leave
+   before the unlock time. Anyone can check the lock with `PositionManager.ownerOf(tokenId)`,
+   `lockOfToken(tokenId)` and `locks(lockId)`.
+
+### How the hook taxes a trade
+The hook's permissions are encoded in its address (`0x...a0cc`, low bits `0x20cc`):
+beforeInitialize, beforeSwap, afterSwap, beforeSwapReturnDelta and afterSwapReturnDelta. It has
+no liquidity callbacks, so adding and removing liquidity is neither taxed nor restricted.
+
+- **The ETH side.** Every fee is computed on and taken in ETH (currency0). A buy is a swap from
+  ETH to the token (`zeroForOne`), a sell the other way.
+- **The rate.** Per direction, `HoodSaleV4Hook.PLATFORM_TAX_BPS` (25, a constant 0.25%) plus the
+  pool's project share plus its holders' share. `MAX_TOTAL_TAX_BPS` (1,000) caps the sum at 10%
+  per side, checked by the launcher at creation and on `setTaxConfig` and by the hook on
+  `register` and `setTaxes`. The LP fee (`LP_FEE`, 500 = 0.05%) is separate and goes to the
+  pool's liquidity, the launch position included. `feeBps(poolId, buy)` and `quoteFee(poolId, buy, ethAmount)` read the total.
+- **When the trader names the ETH amount** (a buy with an exact input, a sell with an exact
+  output) the fee is that amount times the rate, taken in `beforeSwap`: on the buy the trader
+  pays what they named and the pool swaps the rest; on the sell the pool releases the named
+  amount plus the fee and the trader receives what they asked for. If the pool cannot deliver
+  the amount plus the fee, the swap reverts (`PartialFill`) instead of paying the trader less.
+- **Otherwise** (a sell with an exact input, a buy with an exact output) the fee is the ETH the
+  swap produced or consumed times the rate, taken in `afterSwap`: out of the ETH a seller
+  receives, or on top of the ETH a buyer pays.
+- **Effective rates.** An exact-input trade pays the stated rate: of the ETH a buyer pays in, or
+  of the ETH a sale produces. An exact-output trade (a buy for an exact number of tokens, a sell
+  for an exact amount of ETH) has the rate applied to the ETH before tax and added on top, so it
+  comes to `rate / (1 + rate)` of the trade's ETH, for example 9.09% instead of 10%. The site's
+  trade box and `HoodSaleV4Router` only trade exact input.
+- Nothing is sent anywhere during a swap. The hook takes its ETH from the PoolManager and books
+  it (`FeeTaken`), so a recipient that rejects ETH can never make trading revert.
+
+### Where the tax goes
+Each fee is split by the configured rates: project share `fee * projectBps / total`, holders'
+share `fee * holdersBps / total`, and the platform keeps the rest, so rounding never leaves ETH
+unaccounted for. The shares wait in the hook as `pendingMarketing[poolId]`,
+`pendingRewards[poolId]` and `pendingPlatform` (one total across all pools).
+
+- `flush(poolId)`, open to anyone, sends a pool's project share to its wallet and, when the pool
+  has a rewards sink, the holders' share to the Rewards token. `flushPlatform()`, open to anyone,
+  sends the platform share to the Treasury (fixed in the hook as `platformTreasury`), which books
+  30% of it to the buyback reserve like any ETH it receives. Each push carries 100,000 gas; a
+  recipient that rejects its ETH keeps its share pending (`Flushed(poolId, to, amount, ok)`,
+  `PlatformFlushed(amount, ok)`) and nobody else's is affected.
+- The keeper sends `flush` when a pool's pending project and holder shares together reach
+  0.005 ETH and `flushPlatform` when the platform total does. It finds v4 pools through the
+  platform's finalized sales, not through the launcher's token list.
+- **Rewards distributions.** `RewardsTokenV4` accepts ETH only from its hook (`NotHook`) and
+  adds it to `pendingRewardEth`. `distributeRewards(amountOutMin)` turns all of it into the reward
+  token, `distributeRewardsPartly(amount, amountOutMin)` only `amount` of it, so a route that has
+  thinned out can still pay holders in pieces. Both need at least 1e18 shares. A WETH reward is
+  only wrapped. Any other reward needs a route (`no reward route`): exactly the ETH being
+  distributed is wrapped and sent through Uniswap V3 SwapRouter02 `exactInput` along the token's
+  packed path (`rewardRouteV3()`) with the caller's floor, the route must consume all of it
+  (`partial fill` otherwise, so no WETH is stranded, and WETH sent to the token directly is left
+  out), and the reward received must reach the floor (`below minimum`). It is credited per share
+  (`magnifiedRewardPerShare`) and holders withdraw it with `claimRewards()`
+  (`withdrawableRewardOf`). The swap starts from ETH, so it never touches the token's own pool
+  and cannot move its price.
+- **Who may distribute.** The token owner, the TokenFactory, the PresaleFactory (read from the
+  launcher, where it is fixed) and the launcher's keeper (`V4Launcher.keeper`, set by the
+  launcher's owner). The caller sets the swap floor and, with `distributeRewardsPartly`, the
+  amount, which is why the call is not open to everyone. The keeper quotes the route on the
+  chain's QuoterV2, applies the V2 price impact guard (`REWARDS_MAX_IMPACT_BPS`, default 20%) and
+  slippage (`REWARDS_SLIPPAGE_BPS`, default 3%), and when the route is too thin for everything
+  pending halves the amount, at most six times, before it waits for the next interval.
+- **The route.** The path a Rewards token starts on is the platform's stored V3 route for its
+  reward token; the owner can replace it with `setRewardRouteV3(path)`: it must start at WETH, end
+  at the reward token, hold at most `MAX_ROUTE_HOPS + 1` = 4 pools, each existing on the router's
+  V3 factory, and never pass through the token itself; an empty path clears it. The site's token
+  form offers a v4 Rewards or Stock token only for WETH or a reward asset with a stored V3 route.
+- **Who earns.** Shares follow balances. The token itself, the burn address, the launcher, the
+  hook, the PoolManager (which holds the pool's tokens), the PositionManager and the Treasury are
+  excluded at creation and can never be let back in (`isAlwaysExcluded`, `AlwaysExcluded`). The
+  owner can take any other wallet out or let it back in; the PresaleFactory can only take one out,
+  which it does for the sale contract.
+
+### Trading
+`HoodSaleV4Router.buy(token, minAmountOut, to, deadline)` (payable) and `sell(token, amountIn,
+minAmountOut, to, deadline)` (needs an allowance) trade exact input in the pool the launcher
+recorded for the token (`NotLaunched` before the launch), so a swap can never be steered into a
+look-alike pool; they return unspent ETH and hold nothing between calls. Uniswap's own interface
+routes only pools whose hook is on its allowlist, and the hook was submitted for it; until it is
+listed the site trades through this router. The pool itself is open to any caller of the
+PoolManager: the fork suite buys and sells through Uniswap's Universal Router and quotes through
+the V4Quoter with the fee included. `HoodSaleV4Lens` reports a launch in the units the rest of the
+platform uses (`launchStats`, `creatorTaxes`, `v4LaunchView`). It values a launch by its own
+position, so liquidity added in a narrow range cannot make the pool look deeper, and it keeps
+the price once the launch position has been withdrawn. `HoodSaleLens` reads v4 launches through
+the lens the token's launcher names (`V4Launcher.lens`), so a new v4 lens needs no new
+`HoodSaleLens`.
+
+### Owner powers on v4 and the one-way locks
+A `HoodSaleTokenV4` has no owner function besides `transferOwnership` and `renounceOwnership`
+(which records `renouncedBy`); a `RewardsTokenV4` adds only its reward route, its reward
+exclusions and running a distribution. Neither has a tax, mint, pause, blacklist, freeze or
+seizure function. What the token owner can change lives on the launcher, the hook and, for
+Rewards, the token:
+
+- **Before the pool opens:** `V4Launcher.setTaxConfig(token, cfg)`, the rates, the wallet and
+  the lock flags the pool will open with. A change after a v4 sale was created stops that sale
+  from launching (see the terms rule).
+- **After the launch:** on the hook, `setTaxes(poolId, marketingBuy, marketingSell, rewardsBuy,
+  rewardsSell)` within 10% per side with the platform share, a holders' share only on a Rewards
+  token launched with one (`NoRewardsSink`), and `setMarketingWallet(poolId, wallet)`.
+  `lockTaxes(poolId)` and `lockMarketingWallet(poolId)` remove them for good (`SettingLocked`);
+  no function unlocks them. A Standard token launched through a current sale opens with no project
+  tax and the tax locked.
+- **Renouncing** the token leaves the hook's `onlyTokenOwner` checks without a caller, so the
+  tax and the wallet stay as they are for good (before the launch it freezes the pending config
+  the same way). The create presale flow offers `renounceOwnership` right after the sale is
+  created. `transferOwnership` hands every power to the new owner.
+- **Rewards token:** `setRewardRouteV3` and `setExcludedFromRewards` are owner only (the
+  PresaleFactory may only exclude) and are gone once ownership is renounced; `distributeRewards`
+  and `distributeRewardsPartly` are open to the owner, the platform factories and the v4 keeper,
+  and can only buy the reward along the token's stored route.
+- **Platform side:** the hook has no owner, and its platform share, cap, LP fee and Treasury are
+  constants or immutables. The V4Launcher's owner can set the lens and the keeper; `setHook` was
+  done once at deployment and is refused afterwards, and the PresaleFactory, TokenFactory,
+  Treasury, Uniswap contracts and locker are immutable. The launcher accepts a launch from any
+  contract the PresaleFactory created and trusts it to name its token, so the sale code the
+  factory owner sets with `setPresaleCode` decides what may open a v4 pool. The V4PositionLocker's
+  owner can allow or remove launchers (`setLauncher`); that gives no power over existing locks,
+  but removing the V4Launcher stops every v4 sale that locks its liquidity from launching until it
+  is allowed again, and a sale that cannot launch within 14 days of its end turns refundable.
+
+### Known limits
+What the contracts cannot prevent (the same list as the Trust page of the site):
+
+- Anyone can open another pool for any token, on V2, V3 or on Uniswap v4 without the HoodSale
+  hook. Trades there pay no tax, unless it is a V2 token whose owner or the platform marks that
+  pair as taxed; for a quick Rewards token anyone can have a further pair of the platform DEX
+  taxed through `QuickLaunch.registerAmmPair`. The launch liquidity stays in the pool the sale
+  opened, burned for good or locked until its unlock time, and that is where the trading happens.
+- On Uniswap v4, liquidity placed in a narrow price range that the price then moves through works
+  like a limit order. It is not a swap, so the hook takes no tax on it.
+- On a v4 trade that fixes the amount received instead of the amount paid in (a buy for an exact
+  number of tokens, or a sell for an exact amount of ETH), the tax is computed on the ETH before
+  tax and added on top, so it comes to slightly less than the stated rate of the trade's ETH, for
+  example 9.09% instead of 10%. A trade that fixes the amount paid in, as the site's trade box
+  does, pays the stated rate.
+- A v4 buy that names its ETH amount and sets its own price limit pays the tax on the whole
+  amount named, even if the swap stops early. Uniswap's router and the site's trade box never set
+  such a limit.
+- A v4 token owner who keeps the tax or the wallet unlocked can change them after the launch, the
+  tax within the 10% cap. The token page shows which settings are locked.
+- Uniswap's own fee switch can add a protocol fee of up to 0.1% per trade to any v4 pool,
+  HoodSale's included. It is off today and HoodSale does not control it.
+- The V4Launcher accepts launches only from sales of the presale factory it was deployed with,
+  and a v4 token can only be launched by the launcher that created it. If that factory is ever
+  replaced, a new launcher and hook have to be deployed with it, and tokens created before the
+  switch can still launch only through sales of the old factory.
+
 ## HOODS Presale
 HOODS is itself a platform token and its presale goes through the same
 `PresaleFactory` flow as every other sale (the creation fee where there is one, the platform share,
@@ -348,7 +598,8 @@ prompts its owner to exempt the sale contract by hand before the launch.
 ## Revenue & Buyback (Treasury)
 All revenue is collected in the Treasury contract:
 - The platform share of the raised amount (2.5% on mainnet) + the 10% early exit penalties (ETH); the presale creation fees only when the factory charges them (contract defaults 0.1 and 0.03 ETH, none on mainnet)
-- The 0.25% buy/sell tax from all platform tokens (in token terms; the Treasury can swap these to ETH on the DEX)
+- The 0.25% buy/sell tax from all V2 platform tokens (in token terms; the Treasury can swap these to ETH on the DEX)
+- The 0.25% platform share of every buy and sell in a Uniswap v4 launch pool, collected in ETH by the hook and sent on by `HoodSaleV4Hook.flushPlatform` as plain ETH, so it falls under the same 30% rule as every ETH the Treasury receives
 
 **30% of every ETH received goes to the buyback reserve**: HOODS is bought on the DEX and **burned**. The remaining 70% is for operations/treasury.
 
@@ -400,14 +651,14 @@ then approve the locker and call `LiquidityLocker.lock(token, amount, unlockTime
 wallet holding fewer tokens than the slice cannot lock it. Locks cannot be shortened or withdrawn
 before the unlock date.
 
-## DexScreener Chart
-On the sale page, the token page and the HOODS page of launched tokens, a DexScreener
-chart is embedded, and the "Open on DexScreener"
-link goes to the pool page (`dexscreener.com/robinhood/<pair>`; the pool address is
-the token's `mainPair()` value). DexScreener lists Robinhood Chain under the short
-name `robinhood`. The chart only exists on mainnet; so that the layout can be seen on the local
-network (31337), the card shows a mainnet sample pool (USDG/WETH) explicitly labelled "Preview",
-and on testnet a short note remains.
+## DexScreener Link
+On the sale page, the token page and the HOODS page of launched tokens, an "Open on DexScreener"
+button opens the pool page in a new tab (`dexscreener.com/robinhood/<pool>`; for a V2 token the
+pool is the token's `mainPair()` value, and a v4 pool, which has no pair contract, is linked by its
+32 byte pool id, `V4Launcher.launchOf(token).poolId`). The chart is no longer embedded: the embed
+often stalled on its loading screen while DexScreener's own page loaded. DexScreener lists
+Robinhood Chain under the short name `robinhood`; on a network it does not list (the testnet, a
+local network) the button is not shown.
 
 ## Participants and Activity Feed
 Every presale contract keeps the participation history on chain: a unique participant
@@ -447,12 +698,19 @@ The integration tests running against the real Uniswap V2 on a Robinhood mainnet
 The mock DEX (`MockDex`) now enforces the `INVALID_TO` rule like the real `UniswapV2Pair.swap`;
 the offline suite catches this class of bugs.
 
+The pool price deviation guard is a V2 rule. A v4 launch pool cannot exist before the launch:
+only the V4Launcher can open a pool with the HoodSale hook, once per token, at the listing
+price. The v4 mode has its own fork suite (`npm run test:fork:v4`) against the real Uniswap v4
+PoolManager, PositionManager, Permit2, StateView, V4Quoter and Universal Router; its offline tests
+(`test/v4/`) deploy Uniswap's published build from the artifacts of the `@uniswap/v4-core` and
+`@uniswap/v4-periphery` packages instead of a mock, and check its runtime sizes against mainnet.
+
 ## Source Verification
 Source verification is an off-chain process run by the platform keeper (`npm run keeper`,
 `contracts/scripts/launch-keeper.js`), which also hosts the verification watcher
 (`scripts/auto-verify.js`, `AUTO_VERIFY=0` turns it off, `npm run auto-verify` runs it alone).
 The watcher follows the TokenFactory's `TokenCreated` events, so every Standard, Tax and Rewards
-token, including the tokens QuickLaunch creates through the factory, is verified after
+V2 token, including the tokens QuickLaunch creates through the factory, is verified after
 `CONFIRMATIONS` blocks: the constructor arguments are rebuilt from the chain
 (`scripts/lib/constructorArgs.js`; for tokens created inside another contract's call the supply
 comes from the mint log of the creation receipt), the Standard JSON input is taken from the
@@ -463,9 +721,13 @@ Blockscout is only the secondary target when its API answers; the mainnet API si
 Cloudflare challenge (403) and its verification service returned 500, neither blocks the loop,
 failures are retried with exponential backoff and progress is kept in
 `verify-state/<network>.json`. Presale contracts are verified the same way unless
-`VERIFY_PRESALES=0`; the platform contracts were verified once by hand (`verify-contract.js`,
-Sourcify exact match) and are listed on the Trust page of the site. Details in
-`contracts/docs/VERIFY.md`.
+`VERIFY_PRESALES=0`; the platform contracts, the v4 contracts included, were verified once by
+hand (`verify-contract.js`; a Sourcify exact match for all of them but TokenFactory, a partial
+match) and are listed on the Trust page of the site. Tokens created for a Uniswap v4 launch come
+through the same `TokenCreated` event (their creator on the factory is the V4Launcher) but are
+different contracts (`HoodSaleTokenV4`, `RewardsTokenV4`); the watcher recognises them by
+`poolVersion()` and rebuilds their constructor arguments from the token and its creation
+receipt. Details in `contracts/docs/VERIFY.md`.
 
 ## Token Profiles
 Every platform token can have an on-chain profile (`TokenMetadataRegistry`):
@@ -480,7 +742,10 @@ shows this information together with the token's actual tax settings and market 
 ## Launch Performance
 Finalized presales are listed on the "Launches" page. `HoodSaleLens`
 compares the listing price (derived from listingRate) with the current pool price
-and returns the multiplier (1e18 = 1x); the frontend shows it as "3.21x" or "-42%".
+and returns the multiplier (1e18 = 1x); the frontend shows it as "3.21x" or "-42%". For a v4
+launch the price and the pool amounts come from `HoodSaleV4Lens.launchStats`, which values the
+launch by its own position; `PresaleView`, `LaunchView` and `MomentumView` carry `poolKind` (0
+Uniswap V2, 1 Uniswap v4).
 
 ## Fee Visibility
 Fees are not lined up on the home page like an advertisement. Every fee is stated where the
@@ -501,8 +766,15 @@ contracts/
   Presale.sol                contribution, claim, early exit, cancel, finalize, liquidity
   LiquidityLocker.sol        LP locking / withdrawal after expiry
   TokenMetadataRegistry.sol  token profiles (logo, cover, description, social)
-  HoodSaleLens.sol           read-only batched data + launch performance
+  HoodSaleLens.sol           read-only batched data + launch performance; poolKind, v4 reads through HoodSaleV4Lens
+  v4/V4Launcher.sol          v4 token creation, the tax held until launch, opens the pool at finalize
+  v4/HoodSaleV4Hook.sol      the tax on every v4 trade, in ETH; flush / flushPlatform
+  v4/V4PositionLocker.sol    locked v4 launch positions, LP fee collection
+  v4/HoodSaleV4Router.sol    exact-input buys and sells in a launch's own pool
+  v4/HoodSaleV4Lens.sol      read-only v4 launch data
+  v4/tokens/                 HoodSaleTokenV4 (Standard, Tax), RewardsTokenV4 + RewardsTokenCodeV4
+  v4/deployers/              the TokenFactory's deployers: V2 token, or v4 token for the launcher
 frontend/                    Vite + React + wagmi/viem
 ```
 
-DEX: the official Uniswap V2 Router02 on Robinhood Chain (`0x89e5db8b5aa49aa85ac63f691524311aeb649eba`) for every token's own pool; the reward swap's stock leg runs on Uniswap V3 (SwapRouter02 `0xcaf681a66d020601342297493863e78c959e5cb2`). Both addresses are configurable at deploy time.
+DEX: the official Uniswap V2 Router02 on Robinhood Chain (`0x89e5db8b5aa49aa85ac63f691524311aeb649eba`) for the own pool of every V2 token; the reward swap's stock leg runs on Uniswap V3 (SwapRouter02 `0xcaf681a66d020601342297493863e78c959e5cb2`). Both addresses are configurable at deploy time. A v4 launch opens its pool on Uniswap's own v4 deployment (PoolManager `0x8366a39cc670b4001a1121b8f6a443a643e40951`, PositionManager `0x58daec3116aae6d93017baaea7749052e8a04fa7`, Permit2 `0x000000000022D473030F116dDEE9F6B43aC78BA3`), fixed in the V4Launcher at deployment, and a v4 Rewards token buys its reward on the same Uniswap V3 SwapRouter02.

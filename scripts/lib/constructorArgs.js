@@ -6,7 +6,8 @@
 //   // r = { contract: "contracts/tokens/TaxToken.sol:TaxToken", args: [...], kind, meta }
 //
 // Recognized contracts:
-//   - TokenFactory tokens (Standard / Tax / Rewards)
+//   - TokenFactory tokens (Standard / Tax / Rewards, and the Uniswap v4 HoodSaleTokenV4 /
+//     RewardsTokenV4 the V4Launcher creates through the same factory)
 //   - Presale contracts (PresaleFactory.isPresale)
 //   - StandardTokenDeployer / TaxTokenDeployer / RewardsTokenDeployer
 //   - Platform contracts: Treasury, LiquidityLocker, TokenFactory, PresaleFactory,
@@ -37,6 +38,12 @@
 // RewardRouteV3Updated of the token before its mint, or an empty path when there is none. Later
 // setRewardRouteV3 / setRewardRoute calls emit the same event, so without the receipt the
 // events strategy confirms the current value only when no such event followed the creation.
+//
+// A token created for a Uniswap v4 pool (its creator on the factory is the V4Launcher) is a
+// different contract with its own constructor, told apart by poolVersion() == 4 before the V2
+// names are used: HoodSaleTokenV4 (Standard and Tax) and RewardsTokenV4 (Rewards). Every argument
+// but the supply and RewardsTokenV4's V3 path is an immutable and is read back; those two come
+// from the creation receipt the same way (see reconstructTokenV4).
 
 const fs = require("fs");
 const path = require("path");
@@ -65,6 +72,18 @@ const FQN = {
   LaunchBatch: "contracts/LaunchBatch.sol:LaunchBatch",
   RewardsTokenCode: "contracts/tokens/RewardsTokenCode.sol:RewardsTokenCode",
   QuickLaunch: "contracts/QuickLaunch.sol:QuickLaunch",
+  // The Uniswap v4 launch mode
+  HoodSaleV4Hook: "contracts/v4/HoodSaleV4Hook.sol:HoodSaleV4Hook",
+  V4Launcher: "contracts/v4/V4Launcher.sol:V4Launcher",
+  V4PositionLocker: "contracts/v4/V4PositionLocker.sol:V4PositionLocker",
+  HoodSaleV4Lens: "contracts/v4/HoodSaleV4Lens.sol:HoodSaleV4Lens",
+  HoodSaleV4Router: "contracts/v4/HoodSaleV4Router.sol:HoodSaleV4Router",
+  RewardsTokenCodeV4: "contracts/v4/tokens/RewardsTokenCodeV4.sol:RewardsTokenCodeV4",
+  HoodSaleTokenV4: "contracts/v4/tokens/HoodSaleTokenV4.sol:HoodSaleTokenV4",
+  RewardsTokenV4: "contracts/v4/tokens/RewardsTokenV4.sol:RewardsTokenV4",
+  StandardTokenDeployerV4: "contracts/v4/deployers/TokenDeployersV4.sol:StandardTokenDeployerV4",
+  TaxTokenDeployerV4: "contracts/v4/deployers/TokenDeployersV4.sol:TaxTokenDeployerV4",
+  RewardsTokenDeployerV4: "contracts/v4/deployers/TokenDeployersV4.sol:RewardsTokenDeployerV4",
 };
 
 // deployments/<network>.json key -> contract name
@@ -80,9 +99,20 @@ const DEPLOYMENT_KEYS = {
   presaleCode: "PresaleCode",
   rewardsTokenCode: "RewardsTokenCode",
   quickLaunch: "QuickLaunch",
+  v4Hook: "HoodSaleV4Hook",
+  v4Launcher: "V4Launcher",
+  v4Locker: "V4PositionLocker",
+  v4Lens: "HoodSaleV4Lens",
+  v4Router: "HoodSaleV4Router",
+  rewardsTokenCodeV4: "RewardsTokenCodeV4",
 };
 
 const TOKEN_TYPE_NAMES = ["StandardToken", "TaxToken", "RewardsToken"];
+// A token built for a Uniswap v4 pool: one contract for the Standard and Tax types (the tax lives
+// in the pool's hook), another for Rewards
+const V4_TOKEN_TYPE_NAMES = ["HoodSaleTokenV4", "HoodSaleTokenV4", "RewardsTokenV4"];
+// PUSH4 poolVersion(): the dispatcher of a v4 token compares against it, a V2 token has no such function
+const POOL_VERSION_PUSH = "63" + ethers.id("poolVersion()").slice(2, 10);
 
 const PRESALE_PARAM_FIELDS = [
   "token",
@@ -145,6 +175,20 @@ const PLATFORM_TOKEN_ABI = [
   OWNABLE_EVENT,
 ];
 
+// HoodSaleTokenV4 and RewardsTokenV4 (the getters the second one adds revert on the first)
+const V4_TOKEN_ABI = [
+  "function poolVersion() view returns (uint8)",
+  "function tokenType() view returns (uint8)",
+  "function totalSupply() view returns (uint256)",
+  "function launcher() view returns (address)",
+  "function tokenFactory() view returns (address)",
+  "function rewardToken() view returns (address)",
+  "function weth() view returns (address)",
+  "function v3Router() view returns (address)",
+  "function v3Quoter() view returns (address)",
+  "function rewardRouteV3() view returns (bytes)",
+];
+
 const TAX_TOKEN_EVENTS = [
   "event TaxesUpdated(uint16 buyTaxBps, uint16 sellTaxBps)",
   "event MarketingWalletUpdated(address wallet)",
@@ -184,6 +228,9 @@ const DEPLOYER_ABI = [
   "function v3Quoter() view returns (address)",
   // RewardsTokenDeployer of the owner-locks generation: the holder of RewardsToken's creation code
   "function rewardsTokenCode() view returns (address)",
+  // The deployers that can also build a token for a Uniswap v4 pool
+  "function launcher() view returns (address)",
+  "function rewardsTokenCodeV4() view returns (address)",
 ];
 
 // Constructor signatures of the token deployers. The rewards deployer of the Uniswap V3
@@ -192,6 +239,10 @@ const DEPLOYER_CONSTRUCTORS = {
   StandardTokenDeployer: ["address"],
   TaxTokenDeployer: ["address"],
   RewardsTokenDeployer: ["address", "address", "address"],
+  // The generation that can also build a token for a Uniswap v4 pool names the launcher
+  StandardTokenDeployerV4: ["address", "address"],
+  TaxTokenDeployerV4: ["address", "address"],
+  RewardsTokenDeployerV4: ["address", "address", "address", "address", "address", "address"],
 };
 
 const TREASURY_ABI = ["function owner() view returns (address)", OWNABLE_EVENT];
@@ -239,7 +290,34 @@ const PLATFORM_CONSTRUCTORS = {
   // The token type generation adds a dynamic address[] (the reward allowlist) and the previous
   // generation; both are read back from the contract instead of the creation-tx tail.
   QuickLaunch: ["address", "address", "address", "address[]", "address"],
+  // Every v4 contract keeps its constructor arguments as immutables, so they are read back from
+  // the contract rather than dug out of the creation transaction.
+  HoodSaleV4Hook: ["address", "address", "address"],
+  V4Launcher: ["address", "address", "address", "address", "address", "address", "address", "address"],
+  V4PositionLocker: ["address", "address"],
+  HoodSaleV4Lens: ["address", "address"],
+  HoodSaleV4Router: ["address", "address"],
+  RewardsTokenCodeV4: [],
 };
+
+const V4_HOOK_ABI = [
+  "function poolManager() view returns (address)",
+  "function launcher() view returns (address)",
+  "function platformTreasury() view returns (address)",
+];
+const V4_LAUNCHER_ABI = [
+  "function owner() view returns (address)",
+  "function poolManager() view returns (address)",
+  "function positionManager() view returns (address)",
+  "function permit2() view returns (address)",
+  "function tokenFactory() view returns (address)",
+  "function presaleFactory() view returns (address)",
+  "function locker() view returns (address)",
+  "function treasury() view returns (address)",
+];
+const V4_LOCKER_ABI = ["function owner() view returns (address)", "function positionManager() view returns (address)"];
+const V4_LENS_ABI = ["function launcher() view returns (address)", "function stateView() view returns (address)"];
+const V4_ROUTER_ABI = ["function poolManager() view returns (address)", "function launcher() view returns (address)"];
 
 const TOPIC = {
   TokenCreated: ethers.id("TokenCreated(address,address,uint8,string,string)"),
@@ -476,6 +554,33 @@ function matchDeployments(address, deployments) {
   return null;
 }
 
+/**
+ * True when a failed call was the contract reverting, however the provider reports it: a bare
+ * ethers provider raises CALL_EXCEPTION, the hardhat-ethers provider passes the node's JSON-RPC
+ * error through (code 3, "execution reverted"), and the in-process hardhat network throws
+ * "Transaction reverted: ..." without a code.
+ */
+function isRevertError(e) {
+  if (!e) return false;
+  if (e.code === "CALL_EXCEPTION" || e.code === 3 || (e.error && e.error.code === 3)) return true;
+  return /\b(execution|transaction) reverted\b|VM Exception while processing transaction/i.test(String(e.message || ""));
+}
+
+/**
+ * True for a token built for a Uniswap v4 pool: poolVersion() answers 4. A V2 token has no such
+ * function and reverts. When the call fails any other way (a flaky RPC), the selector decides:
+ * only the dispatcher of a v4 token's runtime code carries it.
+ */
+async function isV4Token(provider, address, code) {
+  const c = new ethers.Contract(address, V4_TOKEN_ABI, provider);
+  try {
+    return Number(await c.poolVersion()) === 4;
+  } catch (e) {
+    if (isRevertError(e)) return false;
+    return typeof code === "string" && code.toLowerCase().includes(POOL_VERSION_PUSH);
+  }
+}
+
 async function detect(provider, address, code, o) {
   // 1. deployments file
   const known = matchDeployments(address, o.deployments);
@@ -488,6 +593,11 @@ async function detect(provider, address, code, o) {
     const factory = new ethers.Contract(tf, TOKEN_FACTORY_ABI, provider);
     const info = await tryCall(() => factory.tokenInfo(address));
     if (info && sameAddr(info.token, address)) {
+      // A token the V4Launcher created is registered with the same token types, but the
+      // deployers built a different contract for it, so it is told apart first
+      if (await isV4Token(provider, address, code)) {
+        return { kind: "token", name: V4_TOKEN_TYPE_NAMES[Number(info.tokenType)], tokenFactory: tf, info, poolVersion: 4 };
+      }
       return { kind: "token", name: TOKEN_TYPE_NAMES[Number(info.tokenType)], tokenFactory: tf, info };
     }
   }
@@ -506,9 +616,13 @@ async function detect(provider, address, code, o) {
       tryCall(() => tfc.taxDeployer()),
       tryCall(() => tfc.rewardsDeployer()),
     ]);
-    if (sameAddr(sd, address)) return { kind: "deployer", name: "StandardTokenDeployer", tokenFactory: f };
-    if (sameAddr(td, address)) return { kind: "deployer", name: "TaxTokenDeployer", tokenFactory: f };
-    if (sameAddr(rd, address)) return { kind: "deployer", name: "RewardsTokenDeployer", tokenFactory: f };
+    // The slot in the factory says which of the three it is; only its own code says which
+    // generation, and the generation that can also build a token for a Uniswap v4 pool is the one
+    // that names a launcher.
+    const isV4 = (await tryCall(() => asWithFactory.launcher())) ? "V4" : "";
+    if (sameAddr(sd, address)) return { kind: "deployer", name: `StandardTokenDeployer${isV4}`, tokenFactory: f };
+    if (sameAddr(td, address)) return { kind: "deployer", name: `TaxTokenDeployer${isV4}`, tokenFactory: f };
+    if (sameAddr(rd, address)) return { kind: "deployer", name: `RewardsTokenDeployer${isV4}`, tokenFactory: f };
   }
 
   // 4. bytecode match (platform contracts when there is no deployments file)
@@ -526,6 +640,15 @@ async function detect(provider, address, code, o) {
       "TaxTokenDeployer",
       "RewardsTokenDeployer",
       "RewardsTokenCode",
+      "StandardTokenDeployerV4",
+      "TaxTokenDeployerV4",
+      "RewardsTokenDeployerV4",
+      "RewardsTokenCodeV4",
+      "HoodSaleV4Hook",
+      "V4Launcher",
+      "V4PositionLocker",
+      "HoodSaleV4Lens",
+      "HoodSaleV4Router",
     ]);
     if (name) {
       if (name.endsWith("Deployer")) return { kind: "deployer", name, tokenFactory: f };
@@ -870,6 +993,175 @@ async function reconstructToken(provider, address, det, o) {
   };
 }
 
+// ------------------------------------------------------------ v4 tokens
+
+/**
+ * A token the V4Launcher created through the TokenFactory. The dual-mode deployers
+ * (contracts/v4/deployers/TokenDeployersV4.sol) build it as
+ *   HoodSaleTokenV4(name, symbol, totalSupply, launcher, tokenFactory, tokenType)   Standard, Tax
+ *   RewardsTokenV4(name, symbol, totalSupply, launcher, tokenFactory, rewardToken, weth,
+ *                  v3Router, v3Quoter, v3Path)                                     Rewards
+ * Name and symbol are the ones the factory recorded, and every address and the token type are
+ * immutables, read back. Neither contract can mint or burn after its constructor, which mints the
+ * whole supply to the launcher, and RewardsTokenV4 stores its V3 path (the platform route of its
+ * reward token at creation, emitting RewardRouteV3Updated) right before that mint. So the creation
+ * receipt gives both exactly; the creation-block state and the events are the fallbacks, as for
+ * the V2 tokens. The factory calldata is never available: the launcher is the one calling it.
+ */
+async function reconstructTokenV4(provider, address, det, o) {
+  const warnings = [];
+  const sources = {};
+  const token = new ethers.Contract(address, V4_TOKEN_ABI, provider);
+  const info = det.info;
+  const typeName = det.name;
+  const tokenFactory = det.tokenFactory;
+  const isRewards = typeName === "RewardsTokenV4";
+
+  if (o.deployments && o.deployments.tokenFactory && !sameAddr(o.deployments.tokenFactory, tokenFactory)) {
+    warnings.push(`token is registered on TokenFactory ${tokenFactory}, not the one in deployments`);
+  }
+
+  const launcher = await token.launcher();
+  sources.launcher = sources.tokenFactory = "immutable-state";
+  if (!sameAddr(launcher, info.creator)) {
+    warnings.push(`the token's launcher ${launcher} is not its creator on the factory (${info.creator})`);
+  }
+  if (o.deployments && o.deployments.v4Launcher && !sameAddr(o.deployments.v4Launcher, launcher)) {
+    warnings.push(`token was created by V4Launcher ${launcher}, not the one in deployments`);
+  }
+
+  const creation = await findTokenCreation(provider, tokenFactory, address, o);
+  if (!creation) warnings.push("TokenCreated log not found; creation block unknown");
+
+  const wanted = isRewards ? ["totalSupply", "rewardRouteV3"] : ["totalSupply"];
+  const resolved = {};
+  const missing = () => wanted.filter((k) => resolved[k] === undefined);
+
+  // 1. creation-receipt: the mint to the launcher, and the route stored before it
+  if (allowed(o, "creation-receipt") && creation && creation.transactionHash) {
+    const supply = await mintedSupplyFromReceipt(provider, address, launcher, creation.transactionHash);
+    if (supply !== null) {
+      resolved.totalSupply = supply;
+      sources.totalSupply = "creation-receipt";
+    }
+    if (isRewards) {
+      const v3Path = await v3PathFromReceipt(provider, address, creation.transactionHash);
+      if (v3Path !== null) {
+        resolved.rewardRouteV3 = v3Path;
+        sources.rewardRouteV3 = "creation-receipt";
+      }
+    }
+  }
+
+  // 2. creation-state (eth_call at the creation block) for whatever is still missing
+  if (missing().length > 0 && allowed(o, "creation-state") && creation) {
+    const at = { blockTag: creation.blockNumber };
+    const fields = missing();
+    const values = {};
+    let ok = true;
+    for (const k of fields) {
+      const v = await tryCall(() => token[k](at));
+      if (v === null) {
+        ok = false;
+        break;
+      }
+      values[k] = v;
+    }
+    if (ok) {
+      Object.assign(resolved, values);
+      for (const k of fields) sources[k] = "creation-state";
+      if (fields.includes("rewardRouteV3")) {
+        // The constructor emits at most one RewardRouteV3Updated; another one in the creation
+        // block, or one from a different transaction, may be a change the state already shows
+        const sameBlock = await tryCall(() =>
+          provider.getLogs({
+            address,
+            topics: [TOPIC.RewardRouteV3Updated],
+            fromBlock: creation.blockNumber,
+            toBlock: creation.blockNumber,
+          })
+        );
+        const foreign = (sameBlock || []).filter(
+          (l) => creation.transactionHash && l.transactionHash.toLowerCase() !== creation.transactionHash.toLowerCase()
+        );
+        if (sameBlock && (sameBlock.length > 1 || foreign.length > 0)) {
+          warnings.push("reward route change detected in the creation block; the creation-state V3 path may be post-change");
+        }
+      }
+    } else {
+      warnings.push("historical eth_call at the creation block failed (non-archive RPC?)");
+    }
+  }
+
+  // 3. events / current: the supply never changes; the route is confirmed by the absence of events
+  if (missing().length > 0 && (allowed(o, "events") || allowed(o, "current"))) {
+    const fields = missing();
+    for (const k of fields) {
+      resolved[k] = await token[k]();
+      sources[k] = "current";
+    }
+    if (fields.includes("totalSupply")) sources.totalSupply = "current-immutable";
+    if (fields.includes("rewardRouteV3")) {
+      if (allowed(o, "events")) {
+        // The constructor's own event sits in the creation block; any event after it is a change
+        const after = creation
+          ? await hadMutationEvents(provider, address, [TOPIC.RewardRouteV3Updated], creation.blockNumber + 1, o)
+          : true;
+        sources.rewardRouteV3 = after ? "current-CHANGED" : "current-unchanged-by-events";
+        if (after) warnings.push("the reward route changed after creation (RewardRouteV3Updated); original V3 path NOT recoverable without the creation receipt or archive state");
+      } else {
+        warnings.push("mutable constructor values taken from current state (unverified)");
+      }
+    }
+  }
+
+  if (missing().length > 0) {
+    throw new ReconstructError(
+      `${address}: ${missing().join(", ")} of the ${typeName} could not be recovered with the allowed strategies`,
+      "UNRESOLVED"
+    );
+  }
+
+  let args;
+  if (isRewards) {
+    const [rewardToken, weth, v3Router, v3Quoter] = await Promise.all([
+      token.rewardToken(),
+      token.weth(),
+      token.v3Router(),
+      token.v3Quoter(),
+    ]);
+    sources.rewardToken = sources.weth = sources.v3Router = sources.v3Quoter = "immutable-state";
+    args = [
+      info.name, info.symbol, resolved.totalSupply, launcher, tokenFactory,
+      rewardToken, weth, v3Router, v3Quoter, resolved.rewardRouteV3,
+    ];
+  } else {
+    const tokenType = await token.tokenType();
+    sources.tokenType = "immutable-state";
+    if (Number(tokenType) !== Number(info.tokenType)) {
+      warnings.push(`the token records type ${tokenType}, the factory ${info.tokenType}; the token's own value is used`);
+    }
+    args = [info.name, info.symbol, resolved.totalSupply, launcher, tokenFactory, tokenType];
+  }
+
+  return {
+    contract: FQN[typeName],
+    args,
+    kind: "token",
+    name: typeName,
+    address,
+    meta: {
+      tokenFactory,
+      creator: info.creator,
+      launcher,
+      poolVersion: 4,
+      creation,
+      sources,
+      warnings,
+    },
+  };
+}
+
 // ------------------------------------------------------------ presale
 
 async function reconstructPresale(provider, address, det, o) {
@@ -917,6 +1209,22 @@ async function reconstructDeployer(provider, address, det) {
   const args = [factory];
   const sources = { factory: "immutable-state" };
   const warnings = [];
+  if (det.name === "StandardTokenDeployerV4" || det.name === "TaxTokenDeployerV4") {
+    args.push(await c.launcher());
+    sources.launcher = "immutable-state";
+  }
+  if (det.name === "RewardsTokenDeployerV4") {
+    const [v3Router, v3Quoter, codeV2, codeV4, launcher] = await Promise.all([
+      c.v3Router(),
+      c.v3Quoter(),
+      c.rewardsTokenCode(),
+      c.rewardsTokenCodeV4(),
+      c.launcher(),
+    ]);
+    args.push(v3Router, v3Quoter, codeV2, codeV4, launcher);
+    sources.v3Router = sources.v3Quoter = sources.rewardsTokenCode = "immutable-state";
+    sources.rewardsTokenCodeV4 = sources.launcher = "immutable-state";
+  }
   if (det.name === "RewardsTokenDeployer") {
     // The Uniswap V3 generation carries the chain's SwapRouter02 and QuoterV2 as immutables
     const v3Router = await tryCall(() => c.v3Router());
@@ -1018,9 +1326,64 @@ async function reconstructPlatform(provider, address, det, o) {
     meta: { creation: creation || null, sources, warnings, viaBytecode: !!det.viaBytecode },
   });
 
-  if (name === "LiquidityLocker" || name === "PresaleCode" || name === "RewardsTokenCode" || name === "LaunchBatch") {
+  if (
+    name === "LiquidityLocker" ||
+    name === "PresaleCode" ||
+    name === "RewardsTokenCode" ||
+    name === "RewardsTokenCodeV4" ||
+    name === "LaunchBatch"
+  ) {
     sources.all = "no-constructor-args";
     return finish([], null);
+  }
+
+  // The Uniswap v4 contracts. Each one keeps what it was built with, so the arguments come
+  // straight back off the contract; the two that are Ownable report the owner they have now,
+  // which is the one they were deployed with unless it was handed on since.
+  if (name === "HoodSaleV4Hook") {
+    const c = new ethers.Contract(address, V4_HOOK_ABI, provider);
+    sources.all = "immutable-state";
+    return finish(await Promise.all([c.poolManager(), c.launcher(), c.platformTreasury()]), null);
+  }
+
+  if (name === "V4Launcher") {
+    const c = new ethers.Contract(address, V4_LAUNCHER_ABI, provider);
+    const [owner, poolManager, positionManager, permit2, tokenFactory, presaleFactory, locker, treasury] =
+      await Promise.all([
+        c.owner(),
+        c.poolManager(),
+        c.positionManager(),
+        c.permit2(),
+        c.tokenFactory(),
+        c.presaleFactory(),
+        c.locker(),
+        c.treasury(),
+      ]);
+    if (owner === ZERO) warnings.push("owner() is zero: the launcher was renounced, so the deploying owner is unknown");
+    sources.all = "immutable-state";
+    sources.owner = "current-owner";
+    return finish([owner, poolManager, positionManager, permit2, tokenFactory, presaleFactory, locker, treasury], null);
+  }
+
+  if (name === "V4PositionLocker") {
+    const c = new ethers.Contract(address, V4_LOCKER_ABI, provider);
+    const [owner, positionManager] = await Promise.all([c.owner(), c.positionManager()]);
+    if (owner === ZERO) warnings.push("owner() is zero: the locker was renounced, so the deploying owner is unknown");
+    sources.all = "immutable-state";
+    sources.owner = "current-owner";
+    return finish([owner, positionManager], null);
+  }
+
+  if (name === "HoodSaleV4Lens") {
+    const c = new ethers.Contract(address, V4_LENS_ABI, provider);
+    sources.all = "immutable-state";
+    return finish(await Promise.all([c.launcher(), c.stateView()]), null);
+  }
+
+  if (name === "HoodSaleV4Router") {
+    const c = new ethers.Contract(address, V4_ROUTER_ABI, provider);
+    sources.all = "immutable-state";
+    return finish(await Promise.all([c.poolManager(), c.launcher()]), null);
   }
 
   if (name === "QuickLaunch") {
@@ -1128,7 +1491,7 @@ async function reconstructConstructorArgs(provider, address, opts = {}) {
   const det = await detect(provider, addr, code, o);
   switch (det.kind) {
     case "token":
-      return reconstructToken(provider, addr, det, o);
+      return det.poolVersion === 4 ? reconstructTokenV4(provider, addr, det, o) : reconstructToken(provider, addr, det, o);
     case "presale":
       return reconstructPresale(provider, addr, det, o);
     case "deployer":

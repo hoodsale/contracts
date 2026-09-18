@@ -666,3 +666,317 @@ describe("auto-verify watcher (offline)", function () {
     }
   });
 });
+
+// ------------------------------------------------------------------ Uniswap v4 tokens
+
+/**
+ * The creation code each CREATE / CREATE2 of a transaction received, in order, read from its
+ * trace. A token built inside a deployer never shows its creation code in the transaction data,
+ * so this is what the reconstructed arguments are held against.
+ */
+async function createdInitcodes(txHash) {
+  const trace = await hre.network.provider.send("debug_traceTransaction", [txHash, { disableStorage: true }]);
+  return trace.structLogs
+    .filter((l) => l.op === "CREATE" || l.op === "CREATE2")
+    .map((l) => {
+      // the stack lists its top last: value, offset, size
+      const top = l.stack.length - 1;
+      const offset = Number(BigInt("0x" + l.stack[top - 1]));
+      const size = Number(BigInt("0x" + l.stack[top - 2]));
+      return "0x" + l.memory.join("").slice(offset * 2, (offset + size) * 2);
+    });
+}
+
+describe("constructor argument reconstruction: Uniswap v4 tokens", function () {
+  const { deployPlatformV4, taxConfig } = require("./v4/helpers");
+
+  // One v4 token of each kind, created through the V4Launcher: a Standard and a Tax token (both
+  // HoodSaleTokenV4), a Rewards token paying WETH and one paying a tokenized stock along the V3
+  // route the platform stores for it (both RewardsTokenV4). Next to them two V2 tokens the same
+  // dual-mode deployers build when the creator is not the launcher.
+  async function v4Fixture() {
+    const env = await deployPlatformV4();
+    const { launcher, hook, tokenFactory, presaleFactory, quickLaunch, v3Factory, weth, v3Router, v3Quoter, treasury, locker, router } = env;
+    const { alice, bob, carol, dave, marketing } = env;
+
+    const tsla = await ethers.deployContract("MockERC20", ["Mock Tesla", "TSLA", 18, E("1000000")]);
+    const usdg = await ethers.deployContract("MockERC20", ["Mock USDG", "USDG", 6, 1_000_000n * 10n ** 6n]);
+    await v3Factory.createPool(weth.target, tsla.target, 3000);
+    await v3Factory.createPool(weth.target, usdg.target, 500);
+    await v3Factory.createPool(usdg.target, tsla.target, 3000);
+    const path = ethers.solidityPacked(["address", "uint24", "address"], [weth.target, 3000, tsla.target]);
+    const otherPath = ethers.solidityPacked(
+      ["address", "uint24", "address", "uint24", "address"],
+      [weth.target, 500, usdg.target, 3000, tsla.target]
+    );
+    await quickLaunch.setRewardTokenAllowed(tsla.target, true);
+    await quickLaunch.setRewardRouteV3(tsla.target, path);
+
+    const create = async (signer, tokenType, spec, cfg = {}) => {
+      const tx = await launcher
+        .connect(signer)
+        .createToken(tokenType, { rewardToken: ethers.ZeroAddress, ...spec }, taxConfig(marketing.address, cfg), signer.address);
+      const receipt = await tx.wait();
+      const created = await launcher.tokensOfCreator(signer.address);
+      return { address: created[created.length - 1], txHash: tx.hash, blockNumber: receipt.blockNumber };
+    };
+    const standard = await create(alice, 0, { name: "Vee Four Standard", symbol: "V4S", totalSupply: E("4444444") }, { taxLocked: true, walletLocked: true });
+    const tax = await create(bob, 1, { name: "Vee Four Tax", symbol: "V4T", totalSupply: E("777000") }, { marketingBuyBps: 300, marketingSellBps: 500 });
+    const rewardsWeth = await create(
+      carol, 2, { name: "Vee Four Yield", symbol: "V4Y", totalSupply: E("1000000"), rewardToken: weth.target },
+      { rewardsBuyBps: 200, rewardsSellBps: 300 }
+    );
+    const rewardsStock = await create(
+      dave, 2, { name: "Vee Four Stock", symbol: "V4K", totalSupply: E("2500000"), rewardToken: tsla.target },
+      { marketingBuyBps: 200, marketingSellBps: 200, rewardsBuyBps: 200, rewardsSellBps: 200 }
+    );
+    // The owner points the stock token elsewhere afterwards: the arguments still carry the path it was built with
+    const stockToken = await ethers.getContractAt("RewardsTokenV4", rewardsStock.address);
+    await stockToken.connect(dave).setRewardRouteV3(otherPath);
+    expect(await stockToken.rewardRouteV3()).to.equal(otherPath);
+
+    const v2 = async (promise) => {
+      const tx = await promise;
+      await tx.wait();
+      return { address: await tokenFactory.allTokens((await tokenFactory.allTokensLength()) - 1n), txHash: tx.hash };
+    };
+    const v2Tax = await v2(tokenFactory.connect(alice).createTaxToken("Still Vee Two", "SV2", E("900"), carol.address, 150, 250));
+    const v2Rewards = await v2(
+      tokenFactory.connect(bob).createRewardsToken("Still Two Stock", "ST2", E("3000"), tsla.target, dave.address, [150, 250, 100, 200])
+    );
+
+    const deployments = {
+      network: "hardhat",
+      router: router.target,
+      treasury: treasury.target,
+      locker: locker.target,
+      tokenFactory: tokenFactory.target,
+      presaleFactory: presaleFactory.target,
+      quickLaunch: quickLaunch.target,
+      v4Launcher: launcher.target,
+      v4Hook: hook.target,
+    };
+    const V4 = [launcher.target, tokenFactory.target];
+    const V3 = [v3Router.target, v3Quoter.target];
+    const expected = {
+      [standard.address]: { contract: FQN.HoodSaleTokenV4, txHash: standard.txHash, args: ["Vee Four Standard", "V4S", E("4444444"), ...V4, 0] },
+      [tax.address]: { contract: FQN.HoodSaleTokenV4, txHash: tax.txHash, args: ["Vee Four Tax", "V4T", E("777000"), ...V4, 1] },
+      [rewardsWeth.address]: {
+        contract: FQN.RewardsTokenV4,
+        txHash: rewardsWeth.txHash,
+        args: ["Vee Four Yield", "V4Y", E("1000000"), ...V4, weth.target, weth.target, ...V3, "0x"],
+      },
+      [rewardsStock.address]: {
+        contract: FQN.RewardsTokenV4,
+        txHash: rewardsStock.txHash,
+        args: ["Vee Four Stock", "V4K", E("2500000"), ...V4, tsla.target, weth.target, ...V3, path],
+      },
+      [v2Tax.address]: {
+        contract: FQN.TaxToken,
+        txHash: v2Tax.txHash,
+        args: ["Still Vee Two", "SV2", E("900"), alice.address, treasury.target, tokenFactory.target, router.target, 25, carol.address, 150, 250],
+      },
+      [v2Rewards.address]: {
+        contract: FQN.RewardsToken,
+        txHash: v2Rewards.txHash,
+        args: [
+          "Still Two Stock", "ST2", E("3000"), bob.address, treasury.target, tokenFactory.target, router.target, 25,
+          tsla.target, dave.address, [150, 250, 100, 200], ...V3, path,
+        ],
+      },
+    };
+    const v4 = { standard, tax, rewardsWeth, rewardsStock };
+    return { ...env, provider: ethers.provider, deployments, expected, v4, v2Tax, v2Rewards, tsla, path, otherPath };
+  }
+
+  it("names each v4 token by its own contract and returns the arguments its deployer used", async function () {
+    const { provider, deployments, expected } = await loadFixture(v4Fixture);
+    for (const [address, exp] of Object.entries(expected)) {
+      const r = await reconstructConstructorArgs(provider, address, { deployments });
+      expect(r.contract, address).to.equal(exp.contract);
+      expect(norm(r.args), `${exp.contract} ${address}`).to.deep.equal(norm(exp.args));
+      expect(r.meta.warnings, address).to.deep.equal([]);
+      expect(r.meta.creation.transactionHash, address).to.equal(exp.txHash);
+    }
+  });
+
+  it("rebuilds byte for byte the creation code a deployer handed to CREATE", async function () {
+    const { provider, deployments, v4, v2Tax } = await loadFixture(v4Fixture);
+    // The deployers that build with `new` hold little memory, so their trace is cheap to read. The
+    // rewards deployer copies the whole creation code around in memory first, which makes its trace
+    // take minutes; the next test covers the rewards tokens by deploying them again instead.
+    for (const t of [v4.standard, v4.tax, v2Tax]) {
+      const r = await reconstructConstructorArgs(provider, t.address, { deployments });
+      const artifact = await hre.artifacts.readArtifact(r.contract);
+      const encoded = new ethers.Interface(artifact.abi).encodeDeploy(r.args);
+      // the token is the first contract the transaction creates (a V2 token creates its pair next)
+      const [initcode] = await createdInitcodes(t.txHash);
+      expect(initcode.endsWith(encoded.slice(2)), `${r.contract} ${t.address}`).to.equal(true);
+      expect(initcode, `${r.contract} ${t.address}`).to.equal(artifact.bytecode + encoded.slice(2));
+    }
+  });
+
+  it("deploys the artifact again with the reconstructed arguments into the very same contract", async function () {
+    const { provider, deployments, v4, deployer } = await loadFixture(v4Fixture);
+    for (const t of Object.values(v4)) {
+      const r = await reconstructConstructorArgs(provider, t.address, { deployments });
+      const artifact = await hre.artifacts.readArtifact(r.contract);
+      const copy = await new ethers.ContractFactory(artifact.abi, artifact.bytecode, deployer).deploy(...r.args);
+      await copy.waitForDeployment();
+      // Every address argument (and the hook the launcher names) is an immutable, so the runtime
+      // code only comes out identical when they all are
+      expect(await provider.getCode(copy.target), `${r.contract} ${t.address}`).to.equal(await provider.getCode(t.address));
+      // the rest of the arguments live in storage: compared with the original as it was created
+      const original = new ethers.Contract(t.address, artifact.abi, provider);
+      const getters = r.contract === FQN.RewardsTokenV4 ? ["name", "symbol", "totalSupply", "rewardRouteV3"] : ["name", "symbol", "totalSupply"];
+      for (const g of getters) {
+        expect(await copy[g](), `${g} ${t.address}`).to.equal(await original[g]({ blockTag: t.blockNumber }));
+      }
+    }
+  });
+
+  it("reads the supply and the V3 path from the creation receipt and the rest from immutables", async function () {
+    const { provider, deployments, v4, path } = await loadFixture(v4Fixture);
+    const std = await reconstructConstructorArgs(provider, v4.standard.address, { deployments });
+    expect(std.meta.poolVersion).to.equal(4);
+    expect(std.meta.sources).to.deep.equal({
+      launcher: "immutable-state",
+      tokenFactory: "immutable-state",
+      totalSupply: "creation-receipt",
+      tokenType: "immutable-state",
+    });
+    const stock = await reconstructConstructorArgs(provider, v4.rewardsStock.address, { deployments });
+    expect(stock.meta.sources.totalSupply).to.equal("creation-receipt");
+    expect(stock.meta.sources.rewardRouteV3).to.equal("creation-receipt");
+    for (const k of ["launcher", "tokenFactory", "rewardToken", "weth", "v3Router", "v3Quoter"]) {
+      expect(stock.meta.sources[k], k).to.equal("immutable-state");
+    }
+    // the route changed after creation, the argument did not
+    expect(stock.args[9]).to.equal(path);
+    // the watcher passes the creation in; the receipt path answers the same
+    const known = await reconstructConstructorArgs(provider, v4.rewardsStock.address, {
+      deployments,
+      creation: { blockNumber: v4.rewardsStock.blockNumber, transactionHash: v4.rewardsStock.txHash },
+    });
+    expect(known.args[9]).to.equal(path);
+    expect(known.meta.sources.rewardRouteV3).to.equal("creation-receipt");
+  });
+
+  it("falls back to creation-block state and to events when the receipt is not used", async function () {
+    const { provider, deployments, expected, v4, path, otherPath } = await loadFixture(v4Fixture);
+    // archive path: the state at the creation block still holds the original path and supply
+    for (const t of Object.values(v4)) {
+      const r = await reconstructConstructorArgs(provider, t.address, { deployments, strategies: ["creation-state"] });
+      expect(norm(r.args), t.address).to.deep.equal(norm(expected[t.address].args));
+      expect(r.meta.sources.totalSupply).to.equal("creation-state");
+      expect(r.meta.warnings, t.address).to.deep.equal([]);
+    }
+    // events only: the supply cannot change; the stock token's route did (CHANGED), the WETH one's did not
+    const changed = await reconstructConstructorArgs(provider, v4.rewardsStock.address, { deployments, strategies: ["events", "current"] });
+    expect(changed.args[2]).to.equal(E("2500000"));
+    expect(changed.meta.sources.totalSupply).to.equal("current-immutable");
+    expect(changed.args[9]).to.equal(otherPath);
+    expect(changed.args[9]).to.not.equal(path);
+    expect(changed.meta.sources.rewardRouteV3).to.equal("current-CHANGED");
+    expect(changed.meta.warnings.join(" ")).to.match(/RewardRouteV3Updated/);
+    const same = await reconstructConstructorArgs(provider, v4.rewardsWeth.address, { deployments, strategies: ["events", "current"] });
+    expect(norm(same.args)).to.deep.equal(norm(expected[v4.rewardsWeth.address].args));
+    expect(same.meta.sources.rewardRouteV3).to.equal("current-unchanged-by-events");
+    expect(same.meta.warnings).to.deep.equal([]);
+    // with nothing that can recover the supply the reconstruction refuses instead of guessing
+    await expect(
+      reconstructConstructorArgs(provider, v4.tax.address, { deployments, strategies: ["calldata"] })
+    ).to.be.rejectedWith(/totalSupply of the HoodSaleTokenV4 could not be recovered/);
+  });
+
+  it("recognises a v4 token without a deployments file, and by its selector when poolVersion() does not answer", async function () {
+    const { provider, expected, v4 } = await loadFixture(v4Fixture);
+    for (const [address, exp] of Object.entries(expected)) {
+      const r = await reconstructConstructorArgs(provider, address, {});
+      expect(r.contract, address).to.equal(exp.contract);
+      expect(norm(r.args), address).to.deep.equal(norm(exp.args));
+    }
+    // An RPC that fails every poolVersion() call: the dispatcher's selector still tells a v4 token
+    // apart, and a V2 token, which has no such selector, stays V2
+    const selector = ethers.id("poolVersion()").slice(0, 10);
+    const flaky = new Proxy(provider, {
+      get(target, key) {
+        if (key === "call") {
+          return async (tx) => {
+            if (String(tx.data || "").startsWith(selector)) throw new Error("rpc hiccup");
+            return target.call(tx);
+          };
+        }
+        const v = target[key];
+        return typeof v === "function" ? v.bind(target) : v;
+      },
+    });
+    const asV4 = new ethers.Contract(v4.tax.address, ["function poolVersion() view returns (uint8)"], flaky);
+    await expect(asV4.poolVersion()).to.be.rejectedWith(/rpc hiccup/);
+    for (const address of [v4.tax.address, v4.rewardsWeth.address, ...Object.keys(expected).filter((a) => !/V4/.test(expected[a].contract))]) {
+      const r = await reconstructConstructorArgs(flaky, address, {});
+      expect(r.contract, address).to.equal(expected[address].contract);
+      expect(norm(r.args), address).to.deep.equal(norm(expected[address].args));
+    }
+  });
+
+  it("keeps a V2 token V2 on its revert, however the provider reports it", async function () {
+    const { provider, expected } = await loadFixture(v4Fixture);
+    const selector = ethers.id("poolVersion()").slice(0, 10);
+    const push = "63" + selector.slice(2);
+    const v2 = Object.keys(expected).filter((a) => !/V4/.test(expected[a].contract));
+    // Each V2 token's code is served with a v4 dispatcher's selector appended, so only the revert
+    // of poolVersion() can keep it V2: as the in-process network reports it (no code), as a remote
+    // node's JSON-RPC error passed through hardhat-ethers (code 3), and as ethers' CALL_EXCEPTION
+    const reverts = [
+      null,
+      () => Object.assign(new Error("execution reverted"), { code: 3 }),
+      () => Object.assign(new Error("execution reverted (no data present; likely require(false) occurred"), { code: "CALL_EXCEPTION" }),
+    ];
+    for (const makeError of reverts) {
+      const shaped = new Proxy(provider, {
+        get(target, key) {
+          if (key === "getCode") {
+            return async (a, tag) => {
+              const c = await target.getCode(a, tag);
+              return c && c !== "0x" ? c + push : c;
+            };
+          }
+          if (key === "call" && makeError) {
+            return async (tx) => {
+              if (String(tx.data || "").startsWith(selector)) throw makeError();
+              return target.call(tx);
+            };
+          }
+          const v = target[key];
+          return typeof v === "function" ? v.bind(target) : v;
+        },
+      });
+      for (const address of v2) {
+        const r = await reconstructConstructorArgs(shaped, address, {});
+        expect(r.contract, address).to.equal(expected[address].contract);
+        expect(norm(r.args), address).to.deep.equal(norm(expected[address].args));
+      }
+    }
+  });
+
+  it("dry-runs a v4 token with its own source in the package", async function () {
+    const { deployments, expected, v4 } = await loadFixture(v4Fixture);
+    const lines = [];
+    const results = await verifyAddresses(hre, [v4.tax.address, v4.rewardsStock.address], {
+      dryRun: true,
+      deployments,
+      quiet: true,
+      log: (l) => lines.push(l),
+    });
+    expect(results.map((r) => r.status)).to.deep.equal([STATUS.DRY_RUN, STATUS.DRY_RUN]);
+    expect(results[0].contract).to.equal(FQN.HoodSaleTokenV4);
+    expect(results[1].contract).to.equal(FQN.RewardsTokenV4);
+    expect(norm(results[1].plainArgs)).to.deep.equal(norm(expected[v4.rewardsStock.address].args));
+    const pkg = await buildVerificationPackage(hre, { address: v4.rewardsStock.address }, { deployments });
+    const sources = Object.keys(pkg.standardJsonInput.sources);
+    expect(sources).to.include("contracts/v4/tokens/RewardsTokenV4.sol");
+    expect(sources).to.not.include("contracts/tokens/RewardsToken.sol");
+    expect(lines.join("\n")).to.include(FQN.HoodSaleTokenV4);
+  });
+});

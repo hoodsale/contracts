@@ -7,7 +7,8 @@
     "keeper": "hardhat run scripts/launch-keeper.js",
     "auto-verify": "hardhat run scripts/auto-verify.js",
     "abi": "hardhat run scripts/extract-abi.js",
-    "test:fork": "FORK_URL=${FORK_URL:-https://rpc.mainnet.chain.robinhood.com} FORK_BLOCK=${FORK_BLOCK:-$(node -e \"fetch(process.env.FORK_URL||'https://rpc.mainnet.chain.robinhood.com',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'eth_blockNumber',params:[]})}).then(r=>r.json()).then(j=>console.log(parseInt(j.result,16)-200))\")} hardhat test test/fork/robinhood-uniswap.test.js"
+    "test:fork": "FORK_URL=${FORK_URL:-https://rpc.mainnet.chain.robinhood.com} FORK_BLOCK=${FORK_BLOCK:-$(node -e \"fetch(process.env.FORK_URL||'https://rpc.mainnet.chain.robinhood.com',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'eth_blockNumber',params:[]})}).then(r=>r.json()).then(j=>console.log(parseInt(j.result,16)-200))\")} hardhat test test/fork/robinhood-uniswap.test.js",
+    "test:fork:v4": "FORK_URL=${FORK_URL:-https://rpc.mainnet.chain.robinhood.com} FORK_BLOCK=${FORK_BLOCK:-$(node -e \"fetch(process.env.FORK_URL||'https://rpc.mainnet.chain.robinhood.com',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'eth_blockNumber',params:[]})}).then(r=>r.json()).then(j=>console.log(parseInt(j.result,16)-200))\")} hardhat test test/fork/v4.test.js"
   },
   "keywords": [
     "robinhood-chain",
@@ -21,6 +22,8 @@
   "type": "commonjs",
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@uniswap/v4-core": "^1.0.2",
+    "@uniswap/v4-periphery": "^1.0.3",
     "hardhat": "^2.29.1"
   },
   "dependencies": {

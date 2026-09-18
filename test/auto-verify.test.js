@@ -174,6 +174,47 @@ async function fixture() {
   return { ...env, deployments, tokens, standardAddr, taxAddr, rewardsAddr, quick, presaleAddr, chainId: Number((await ethers.provider.getNetwork()).chainId) };
 }
 
+/**
+ * The platform with the Uniswap v4 mode: a v4 Standard, Tax and Rewards token created through the
+ * V4Launcher (they reach the watcher through the factory's TokenCreated like any other), and a V2
+ * token the same dual-mode deployer builds for an ordinary creator.
+ */
+async function v4Fixture() {
+  const { deployPlatformV4, taxConfig } = require("./v4/helpers");
+  const env = await deployPlatformV4();
+  const { launcher, tokenFactory, presaleFactory, treasury, locker, router, quickLaunch, weth, alice, bob, carol, marketing } = env;
+
+  const tokens = {};
+  const create = async (signer, tokenType, spec, cfg, contract) => {
+    const tx = await launcher
+      .connect(signer)
+      .createToken(tokenType, { rewardToken: ethers.ZeroAddress, ...spec }, taxConfig(marketing.address, cfg), signer.address);
+    await tx.wait();
+    const created = await launcher.tokensOfCreator(signer.address);
+    tokens[created[created.length - 1]] = { contract, txHash: tx.hash };
+  };
+  await create(alice, 0, { name: "Watch V4 One", symbol: "WV1", totalSupply: E("1000000") }, { taxLocked: true, walletLocked: true }, FQN.HoodSaleTokenV4);
+  await create(bob, 1, { name: "Watch V4 Two", symbol: "WV2", totalSupply: E("2000000") }, { marketingBuyBps: 200, marketingSellBps: 300 }, FQN.HoodSaleTokenV4);
+  await create(
+    carol, 2, { name: "Watch V4 Three", symbol: "WV3", totalSupply: E("3000000"), rewardToken: weth.target },
+    { rewardsBuyBps: 100, rewardsSellBps: 200 }, FQN.RewardsTokenV4
+  );
+  const v2 = await (await tokenFactory.connect(alice).createStandardToken("Watch V2", "WV0", E("4000000"))).wait();
+  tokens[await tokenFactory.allTokens((await tokenFactory.allTokensLength()) - 1n)] = { contract: FQN.StandardToken, txHash: v2.hash };
+
+  const deployments = {
+    network: "hardhat",
+    router: router.target,
+    treasury: treasury.target,
+    locker: locker.target,
+    tokenFactory: tokenFactory.target,
+    presaleFactory: presaleFactory.target,
+    quickLaunch: quickLaunch.target,
+    v4Launcher: launcher.target,
+  };
+  return { ...env, deployments, tokens, chainId: Number((await ethers.provider.getNetwork()).chainId) };
+}
+
 describe("Sourcify verification", function () {
   let mock;
   let savedUrl;
@@ -484,6 +525,37 @@ describe("Sourcify verification", function () {
       const s2 = await w.tick();
       expect(s2.found).to.equal(0);
       expect(mock.state.submissions).to.have.length(4);
+    });
+
+    it("submits a v4 token under its own contract, not the V2 one of its factory token type", async function () {
+      const { deployments, tokens, chainId } = await loadFixture(v4Fixture);
+      const { w, lines } = watcherFor(deployments, { verifyPresales: false });
+      const s = await w.tick();
+      expect(s.error).to.equal(null);
+      expect(s.found).to.equal(4);
+      expect(s.done).to.equal(4);
+      expect(mock.state.submissions).to.have.length(4);
+      for (const [address, exp] of Object.entries(tokens)) {
+        const sub = mock.state.submissions.find((x) => x.address.toLowerCase() === address.toLowerCase());
+        expect(sub, address).to.not.equal(undefined);
+        expect(sub.body.contractIdentifier, address).to.equal(exp.contract);
+        expect(sub.body.creationTransactionHash, address).to.equal(exp.txHash);
+        const sources = Object.keys(sub.body.stdJsonInput.sources);
+        expect(sources, address).to.include(exp.contract.split(":")[0]);
+        const d = w.state.done[address.toLowerCase()];
+        expect(d.status, address).to.equal(STATUS.VERIFIED);
+        expect(d.kind, address).to.equal("token");
+        expect(d.contract, address).to.equal(exp.contract);
+        expect(d.sourcifyUrl).to.equal(`https://repo.sourcify.dev/${chainId}/${address}`);
+        // the log line names the contract that was submitted
+        const short = exp.contract.slice(exp.contract.lastIndexOf(":") + 1);
+        expect(lines.some((l) => l.includes(address) && l.includes(`(${short})`)), address).to.equal(true);
+      }
+      // the v4 token's package carries the v4 source and not the V2 token it would otherwise be named after
+      const v4Tax = Object.keys(tokens).find((a) => tokens[a].contract === FQN.HoodSaleTokenV4);
+      const sub = mock.state.submissions.find((x) => x.address.toLowerCase() === v4Tax.toLowerCase());
+      expect(Object.keys(sub.body.stdJsonInput.sources)).to.not.include("contracts/tokens/TaxToken.sol");
+      expect(Object.keys(sub.body.stdJsonInput.sources)).to.not.include("contracts/tokens/StandardToken.sol");
     });
 
     it("includes presales by default", async function () {

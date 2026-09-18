@@ -35,6 +35,14 @@ async function main() {
   if (d.lens && d.lens.toLowerCase() !== lens.target.toLowerCase()) next.previousLens = d.lens;
   fs.writeFileSync(file, JSON.stringify(next, null, 2) + "\n");
   console.log(`Saved to deployments/${network}.json`);
+  // On the local network the frontend reads these addresses straight from its own copy.
+  if (network === "localhost" || network === "hardhat") {
+    const frontendConfig = path.join(__dirname, "..", "..", "frontend", "src", "config", "localhost.json");
+    if (fs.existsSync(path.dirname(frontendConfig))) {
+      fs.writeFileSync(frontendConfig, JSON.stringify(next, null, 2));
+      console.log("Updated frontend/src/config/localhost.json");
+    }
+  }
   console.log("\nNew addresses");
   console.log(`  lens  ${lens.target}`);
   console.log("\nNext: put lens into frontend/src/config/registry.js for this chain (and quickLaunch if it changed).");

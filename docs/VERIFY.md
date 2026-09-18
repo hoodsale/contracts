@@ -167,6 +167,34 @@ block, and as a last resort scans in `logChunk` windows (bounded by `maxChunks`)
 `opts.strategies` (for example `["creation-state"]` or `["events", "current"]`) restricts
 the resolution order; the tests use it to prove every path independently.
 
+### Tokens for Uniswap v4 pools
+
+A token the V4Launcher created is registered in the TokenFactory like any other, but it is a
+different contract. Before the V2 name is picked from `tokenType`, the token is asked for
+`poolVersion()`: `4` means a v4 token, a revert means V2 (only when the call fails for another
+reason, such as an RPC error, is the runtime code searched for the selector instead). A v4
+token is `HoodSaleTokenV4` for `tokenType` 0 or 1 and `RewardsTokenV4` for 2, with the
+arguments
+
+- `HoodSaleTokenV4(name, symbol, totalSupply, launcher, tokenFactory, tokenType)`
+- `RewardsTokenV4(name, symbol, totalSupply, launcher, tokenFactory, rewardToken, weth, v3Router, v3Quoter, v3Path)`
+
+`name` and `symbol` come from the factory record, the addresses and `tokenType` are immutables
+read back, `totalSupply` comes from the mint in the creation receipt, and `v3Path` (the route
+the platform's QuickLaunch stored for the reward when the token was created; empty for WETH)
+from the `RewardRouteV3Updated` log of the creation receipt, so a route the owner set later
+does not matter. The same fallbacks as above apply when the receipt cannot be read.
+
+### Presales from an earlier `Presale.sol`
+
+`verify-contract.js` and the watcher build every submission from the current build. A presale
+the factory created from an earlier PresaleCode holder runs the code of the `Presale.sol` of
+that time, so it only matches when submitted with that source: compile the file from the
+commit the holder was deployed from with the same settings, check that its creation code
+equals the holder's `creationCode()`, and submit that Standard JSON input with the
+reconstructed arguments. The presales of 18 September 2026 and earlier were verified this way
+(`de11729` and `51db1cd`).
+
 ## Mainnet: Cloudflare in front of the API
 
 Verified on 2026-09-01: `https://robinhoodchain.blockscout.com/api` answers non-browser
@@ -240,7 +268,7 @@ exist, the watcher never sends transactions.
 
 ## What is proven offline
 
-`npx hardhat test test/verify-args.test.js` (25 tests, about one second) deploys the
+`npx hardhat test test/verify-args.test.js` (34 tests) deploys the
 platform with `MockDex`, creates one token of each type with distinctive parameters and a
 whitelisted presale with `launchTime`, then lets the owners call `setTaxes`,
 `setMarketingWallet`, `setRouter`, `setTreasury`, `setLocker` and `transferOwnership`,
@@ -254,9 +282,12 @@ real deployment transactions, the Standard JSON package (settings identical to
 build-info, dependency closure only, encoded args decode back), Cloudflare detection
 against a local HTTP server, error classification, the `DRY_RUN` output of
 `verify-contract.js` and `verify-platform.js`, `FORCE_MANUAL` package writing, and the
-watcher (cursor, confirmations, persistence and resume, backoff and give-up).
+watcher (cursor, confirmations, persistence and resume, backoff and give-up). On the v4
+platform fixture it also builds a v4 Standard, a v4 Tax and two v4 Rewards tokens (one paying
+WETH, one paying a stock along a V3 route its owner changed later) and proves the rebuilt
+arguments reproduce each deployment, with V2 tokens from the same deployers as controls.
 
-`npx hardhat test test/auto-verify.test.js` (17 tests) starts a Sourcify look-alike on a
+`npx hardhat test test/auto-verify.test.js` (18 tests) starts a Sourcify look-alike on a
 random port (`SOURCIFY_URL` points at it), creates a Standard, a Tax and a Rewards token
 through the factory plus a QuickLaunch token and a normal presale, and checks: the client
 (202 + job polling, 409 and 404 handling, 500 retryable / 400 final, failed jobs,

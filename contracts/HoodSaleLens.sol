@@ -20,6 +20,26 @@ interface IRewardsTokenView {
     function marketingSellTaxBps() external view returns (uint16);
 }
 
+/// @dev A platform token that lists on Uniswap v4. V2 tokens answer neither call.
+interface IV4TokenView {
+    function poolVersion() external view returns (uint8);
+    function launcher() external view returns (address);
+}
+
+interface IV4LauncherView {
+    function lens() external view returns (address);
+}
+
+/// @dev The v4 companion lens, which turns a v4 pool's state into the amounts used here.
+interface IV4LensView {
+    function launchStats(address token)
+        external
+        view
+        returns (uint256 reserveToken, uint256 reserveWeth, bool priceAvailable, bool positionBurned);
+
+    function creatorTaxes(address token) external view returns (uint16 buyBps, uint16 sellBps);
+}
+
 /// @title HoodSaleLens
 /// @notice Read-only helper contract. Aggregates presale and post-launch
 ///         performance data in a single call so the frontend does not have to
@@ -83,6 +103,8 @@ contract HoodSaleLens {
         uint16 buyTaxBps;
         /// @notice Same for DEX sells
         uint16 sellTaxBps;
+        /// @notice Where the token trades: 0 Uniswap V2, 1 Uniswap v4
+        uint8 poolKind;
     }
 
     /// @notice Price performance of a token whose launch is complete (finalized).
@@ -111,6 +133,8 @@ contract HoodSaleLens {
         /// @notice The token's own DEX taxes in bps (see PresaleView.buyTaxBps)
         uint16 buyTaxBps;
         uint16 sellTaxBps;
+        /// @notice Where the token trades: 0 Uniswap V2, 1 Uniswap v4
+        uint8 poolKind;
     }
 
     /// @notice A row of the participants table.
@@ -150,6 +174,7 @@ contract HoodSaleLens {
         bool quick; // quick presale (see PresaleView.quick)
         uint16 buyTaxBps; // the token's own DEX taxes in bps (see PresaleView.buyTaxBps)
         uint16 sellTaxBps;
+        uint8 poolKind; // where the token trades: 0 Uniswap V2, 1 Uniswap v4
     }
 
     PresaleFactory public immutable presaleFactory;
@@ -206,6 +231,7 @@ contract HoodSaleLens {
         v.creatorShareBps = sale.creatorShareBps();
         (v.distributed, v.participantsTotal) = sale.distributionProgress();
         (v.buyTaxBps, v.sellTaxBps) = _tokenTaxes(p.token, info.tokenType);
+        v.poolKind = _poolKind(p.token);
     }
 
     /// @notice Reads presales in pages. If `onlyStatus` is given (0xff = all),
@@ -299,6 +325,7 @@ contract HoodSaleLens {
         m.whitelistCount = sale.whitelistCount();
         m.quick = presaleFactory.isQuick(presaleAddr);
         (m.buyTaxBps, m.sellTaxBps) = _tokenTaxes(p.token, tokenFactory.tokenInfo(p.token).tokenType);
+        m.poolKind = _poolKind(p.token);
 
         // Scan the activity log from the end backwards in chunks of 50; stop at the first record older than since.
         uint256 n = sale.activityLength();
@@ -378,6 +405,7 @@ contract HoodSaleLens {
         v.factoryToken = tokenFactory.isPlatformToken(p.token);
         v.quick = presaleFactory.isQuick(presaleAddr);
         (v.buyTaxBps, v.sellTaxBps) = _tokenTaxes(p.token, info.tokenType);
+        v.poolKind = _poolKind(p.token);
 
         // Listing price: listingRate tokens = 1 ETH  =>  1 token = 1e18 / listingRate wei
         if (p.listingRate > 0) {
@@ -440,6 +468,36 @@ contract HoodSaleLens {
         return IERC20Metadata(token).balanceOf(DEAD);
     }
 
+    /// @notice Where a token trades: 0 Uniswap V2, 1 Uniswap v4.
+    function poolKind(address token) external view returns (uint8) {
+        return _poolKind(token);
+    }
+
+    function _poolKind(address token) private view returns (uint8) {
+        try IV4TokenView(token).poolVersion() returns (uint8 version) {
+            return version == 4 ? 1 : 0;
+        } catch {
+            return 0;
+        }
+    }
+
+    /// @dev The v4 lens a token's launcher points at, or zero when the token lists on V2. The
+    ///      launcher comes from the token itself, so this contract keeps the same constructor and
+    ///      picks up a new v4 deployment without being redeployed.
+    function _v4LensFor(address token) private view returns (IV4LensView) {
+        if (_poolKind(token) != 1) return IV4LensView(address(0));
+        try IV4TokenView(token).launcher() returns (address launcher) {
+            if (launcher == address(0)) return IV4LensView(address(0));
+            try IV4LauncherView(launcher).lens() returns (address lensAddr) {
+                return IV4LensView(lensAddr);
+            } catch {
+                return IV4LensView(address(0));
+            }
+        } catch {
+            return IV4LensView(address(0));
+        }
+    }
+
     /// @dev The owner-set DEX taxes of a factory token by type; the platform tax is not included.
     ///      Non-factory tokens carry the default type (Standard) and report 0.
     function _tokenTaxes(address token, TokenFactory.TokenType tokenType)
@@ -447,6 +505,9 @@ contract HoodSaleLens {
         view
         returns (uint16 buyTaxBps, uint16 sellTaxBps)
     {
+        IV4LensView v4 = _v4LensFor(token);
+        // A v4 launch keeps its tax on the pool's hook rather than in the token.
+        if (address(v4) != address(0)) return v4.creatorTaxes(token);
         if (tokenType == TokenFactory.TokenType.Tax) {
             ITaxTokenView t = ITaxTokenView(token);
             return (t.buyTaxBps(), t.sellTaxBps());
@@ -459,6 +520,12 @@ contract HoodSaleLens {
     }
 
     function _reserves(address token) private view returns (uint256 reserveToken, uint256 reserveWeth) {
+        IV4LensView v4 = _v4LensFor(token);
+        // A v4 pool has no pair to read; the companion lens reports the same two amounts.
+        if (address(v4) != address(0)) {
+            (reserveToken, reserveWeth, , ) = v4.launchStats(token);
+            return (reserveToken, reserveWeth);
+        }
         address weth = router.WETH();
         address pair = IUniswapV2Factory(router.factory()).getPair(token, weth);
         if (pair == address(0)) return (0, 0);

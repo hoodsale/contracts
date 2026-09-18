@@ -21,6 +21,14 @@ const CONTRACTS = {
   TokenFactory: "contracts/TokenFactory.sol/TokenFactory.json",
   TokenMetadataRegistry: "contracts/TokenMetadataRegistry.sol/TokenMetadataRegistry.json",
   Treasury: "contracts/Treasury.sol/Treasury.json",
+  // The Uniswap v4 launch mode
+  HoodSaleV4Hook: "contracts/v4/HoodSaleV4Hook.sol/HoodSaleV4Hook.json",
+  HoodSaleV4Lens: "contracts/v4/HoodSaleV4Lens.sol/HoodSaleV4Lens.json",
+  HoodSaleV4Router: "contracts/v4/HoodSaleV4Router.sol/HoodSaleV4Router.json",
+  HoodSaleTokenV4: "contracts/v4/tokens/HoodSaleTokenV4.sol/HoodSaleTokenV4.json",
+  RewardsTokenV4: "contracts/v4/tokens/RewardsTokenV4.sol/RewardsTokenV4.json",
+  V4Launcher: "contracts/v4/V4Launcher.sol/V4Launcher.json",
+  V4PositionLocker: "contracts/v4/V4PositionLocker.sol/V4PositionLocker.json",
 };
 
 function main() {

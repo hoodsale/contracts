@@ -66,6 +66,9 @@ const BPS = 10_000n;
 const IMPACT_PROBE_DIVISOR = 1000n;
 // RewardsToken refuses to distribute while the shares are below 1 token
 const MIN_SHARES_FOR_DISTRIBUTION = 10n ** 18n;
+// A Uniswap v4 launch collects its fees in the pool's hook and they sit there until someone sends
+// them on. Below this they are not worth a transaction.
+const V4_FLUSH_MIN_WEI = 5n * 10n ** 15n; // 0.005 ETH
 
 const State = { Active: 0, Cancelled: 1, Finalized: 2 };
 // Presale.Status: Failed means the sale ended below its soft cap or the finalize window passed
@@ -93,10 +96,12 @@ async function codeHasSelector(provider, address, signature) {
  * @param hre hardhat runtime (for ethers and contract ABIs)
  * @param options { factoryAddress, signer, log, retrySeconds, pendingTimeoutMs, now,
  *                  rewardsIntervalSeconds, rewardsMinBps, rewardsMaxImpactBps, rewardsSlippageBps,
- *                  quickLaunchAddress (the current QuickLaunch, for the distribution rights warning) }
+ *                  quickLaunchAddress (the current QuickLaunch, for the distribution rights warning),
+ *                  v4LauncherAddress and v4HookAddress (the Uniswap v4 launch mode, optional),
+ *                  v4FlushMinWei }
  */
 async function createKeeper(hre, options) {
-  const { factoryAddress, signer, quickLaunchAddress } = options;
+  const { factoryAddress, signer, quickLaunchAddress, v4LauncherAddress, v4HookAddress } = options;
   const log = options.log || ((line) => console.log(`${new Date().toISOString()} ${line}`));
   const retryMs = (options.retrySeconds ?? 60) * 1000;
   const pendingTimeoutMs = options.pendingTimeoutMs ?? PENDING_TIMEOUT_MS;
@@ -105,6 +110,7 @@ async function createKeeper(hre, options) {
   const rewardsMinBps = options.rewardsMinBps === undefined || options.rewardsMinBps === null ? undefined : BigInt(options.rewardsMinBps);
   const rewardsMaxImpactBps = BigInt(options.rewardsMaxImpactBps ?? REWARDS_MAX_IMPACT_BPS);
   const rewardsSlippageBps = BigInt(options.rewardsSlippageBps ?? REWARDS_SLIPPAGE_BPS);
+  const v4FlushMinWei = BigInt(options.v4FlushMinWei ?? V4_FLUSH_MIN_WEI);
   const now = options.now || (() => Date.now());
   const provider = signer.provider;
 
@@ -242,7 +248,8 @@ async function createKeeper(hre, options) {
   }
 
   async function inspect(addr) {
-    const { sale, quick, rewards } = await saleInfo(addr);
+    const info = await saleInfo(addr);
+    const { sale, quick, rewards } = info;
     const state = Number(await sale.state());
     if (state === State.Cancelled) {
       done.add(addr);
@@ -251,6 +258,14 @@ async function createKeeper(hre, options) {
     if (state === State.Finalized) {
       // The pool exists from the launch on: the token's rewards are worth watching now
       if (rewards) rewards.launched = true;
+      // A failed read here must not hold up the sale's delivery; it is tried again next poll.
+      if (v4) {
+        try {
+          await v4Register(info);
+        } catch (e) {
+          log(`read v4 ${addr} failed: ${short(e)}`);
+        }
+      }
       if (await sale.distributionComplete()) {
         done.add(addr);
         return;
@@ -370,6 +385,152 @@ async function createKeeper(hre, options) {
     }
   }
 
+  // ------------------------------------------------------------ Uniswap v4
+
+  // A v4 launch keeps its fees in the pool's hook until someone sends them on, and the call is
+  // open to anyone, so the keeper does it. Without this the platform's share never reaches the
+  // Treasury and the buyback never sees it.
+  // token address -> { poolId, lastSentAt, isRewards, token, skippedPending }
+  const v4 = v4LauncherAddress && v4HookAddress ? { launched: new Map() } : null;
+
+  async function v4Contracts() {
+    if (!v4.launcher) {
+      v4.launcher = await hre.ethers.getContractAt("V4Launcher", v4LauncherAddress, signer);
+      v4.hook = await hre.ethers.getContractAt("HoodSaleV4Hook", v4HookAddress, signer);
+    }
+    return v4;
+  }
+
+  /**
+   * Remembers the v4 pool of a finalized sale, read once per sale. Launches are found through the
+   * platform's own sales rather than the launcher's token list: anyone can create a v4 token, but
+   * only a sale that reached its soft cap and finalized opens a pool, so the keeper's work grows
+   * with real launches and not with tokens created to fill its list. A sale from before the v4
+   * mode has no isV4Launch and is a V2 launch.
+   */
+  async function v4Register(info) {
+    if (info.v4Token !== undefined) return;
+    const addr = info.sale.target;
+    let tokenAddr = null;
+    if ((await codeHasSelector(provider, addr, "isV4Launch()")) && (await info.sale.isV4Launch())) {
+      // Only the platform's launcher counts; a sale is v4 through the launcher its token names.
+      if ((await info.sale.v4Launcher()).toLowerCase() === v4LauncherAddress.toLowerCase()) {
+        tokenAddr = (await info.sale.getParams()).token;
+        if (!v4.launched.has(tokenAddr)) {
+          const { launcher } = await v4Contracts();
+          v4.launched.set(tokenAddr, { poolId: (await launcher.launchOf(tokenAddr)).poolId, lastSentAt: 0 });
+        }
+      }
+    }
+    info.v4Token = tokenAddr;
+  }
+
+  /**
+   * Quotes turning `pendingEth` into the reward token along the token's stored Uniswap V3 path:
+   * `expected` is what the whole amount fetches now, `impactBps` how far that falls short of a
+   * thousandth of it scaled back up (the route's price without the swap's own impact), the same
+   * guard the V2 rewards distribution uses. A reward token that is WETH needs no swap. A route
+   * that cannot be quoted returns { error }, and the distribution is not sent.
+   */
+  // How many times a v4 distribution the route is too thin for is halved before it waits
+  const V4_PARTIAL_HALVINGS = 6;
+
+  async function quoteV4Rewards(token, pendingEth) {
+    const [rewardToken, weth, path] = await Promise.all([token.rewardToken(), token.weth(), token.rewardRouteV3()]);
+    if (rewardToken.toLowerCase() === weth.toLowerCase()) return { expected: pendingEth, impactBps: 0n };
+    if (!path || path === "0x") return { error: "no reward route" };
+    try {
+      const quoter = await hre.ethers.getContractAt("IQuoterV2", await token.v3Quoter(), signer);
+      const quoteVia = async (amountIn) => (await quoter.quoteExactInput.staticCall(path, amountIn))[0];
+      const expected = await quoteVia(pendingEth);
+      const probeIn = pendingEth >= IMPACT_PROBE_DIVISOR ? pendingEth / IMPACT_PROBE_DIVISOR : 1n;
+      const fair = (await quoteVia(probeIn)) * IMPACT_PROBE_DIVISOR;
+      if (expected === 0n || fair === 0n) return { error: "the route returns nothing" };
+      return { expected, impactBps: fair > expected ? ((fair - expected) * BPS) / fair : 0n };
+    } catch (e) {
+      return { error: short(e) };
+    }
+  }
+
+  async function inspectV4(tokenAddr, entry) {
+    const { hook } = await v4Contracts();
+
+    const [marketing, rewards] = await Promise.all([
+      hook.pendingMarketing(entry.poolId),
+      hook.pendingRewards(entry.poolId),
+    ]);
+    if (marketing + rewards >= v4FlushMinWei) {
+      await send("v4-flush", tokenAddr, () => hook.flush(entry.poolId), `${hre.ethers.formatEther(marketing + rewards)} ETH`);
+    }
+
+    // Only a rewards token holds ETH of its own to turn into the reward asset.
+    if (entry.isRewards === undefined) {
+      entry.isRewards = await codeHasSelector(provider, tokenAddr, "pendingRewardEth()");
+    }
+    if (!entry.isRewards) return;
+    if (!entry.token) entry.token = await hre.ethers.getContractAt("RewardsTokenV4", tokenAddr, signer);
+    const pendingEth = await entry.token.pendingRewardEth();
+    if (pendingEth < v4FlushMinWei) return;
+    if (now() - entry.lastSentAt < rewardsIntervalMs) return;
+    if ((await entry.token.totalShares()) < MIN_SHARES_FOR_DISTRIBUTION) return;
+
+    // A route that stays dead or too thin is quoted again on every poll, but logged once per
+    // pending amount
+    const skip = (reason) => {
+      if (entry.skippedPending !== pendingEth) {
+        log(`v4-rewards ${tokenAddr} skipped: ${reason}, pending ${hre.ethers.formatEther(pendingEth)} ETH`);
+      }
+      entry.skippedPending = pendingEth;
+    };
+    let quote = await quoteV4Rewards(entry.token, pendingEth);
+    if (quote.error) return skip(`route quote failed: ${quote.error}`);
+    // A route too thin for everything that is pending can still take part of it: the amount is
+    // halved until the impact fits, and the rest waits for the next interval. A token from before
+    // distributeRewardsPartly has to wait for the route instead.
+    let amount = pendingEth;
+    if (quote.impactBps > rewardsMaxImpactBps) {
+      if (entry.canSplit === undefined) {
+        entry.canSplit = await codeHasSelector(provider, tokenAddr, "distributeRewardsPartly(uint256,uint256)");
+      }
+      for (let i = 0; entry.canSplit && i < V4_PARTIAL_HALVINGS && quote.impactBps > rewardsMaxImpactBps; i++) {
+        amount /= 2n;
+        if (amount < v4FlushMinWei) break;
+        quote = await quoteV4Rewards(entry.token, amount);
+        if (quote.error) return skip(`route quote failed: ${quote.error}`);
+      }
+      if (amount < v4FlushMinWei || quote.impactBps > rewardsMaxImpactBps) {
+        return skip(`price impact ${pct(quote.impactBps)}% over ${pct(rewardsMaxImpactBps)}%`);
+      }
+    }
+    const amountOutMin = (quote.expected * (BPS - rewardsSlippageBps)) / BPS;
+    const partly = amount < pendingEth;
+    const sent = await send(
+      "v4-rewards",
+      tokenAddr,
+      () =>
+        partly
+          ? entry.token.distributeRewardsPartly(amount, amountOutMin)
+          : entry.token.distributeRewards(amountOutMin),
+      `${hre.ethers.formatEther(amount)}${partly ? ` of ${hre.ethers.formatEther(pendingEth)}` : ""} ETH, min out ${amountOutMin}`
+    );
+    if (sent) {
+      entry.lastSentAt = now();
+      entry.skippedPending = undefined;
+    }
+  }
+
+  async function inspectV4Platform() {
+    const { hook } = await v4Contracts();
+    const pendingPlatform = await hook.pendingPlatform();
+    if (pendingPlatform < v4FlushMinWei) return;
+    await send(
+      "v4-flush-platform",
+      v4HookAddress,
+      () => hook.flushPlatform(),
+      `${hre.ethers.formatEther(pendingPlatform)} ETH to the Treasury`
+    );
+  }
+
   async function poll() {
     await reconcilePending();
     const total = Number(await factory.allPresalesLength());
@@ -391,9 +552,23 @@ async function createKeeper(hre, options) {
         log(`read rewards ${tokenAddr} failed: ${short(e)}`);
       }
     }
+    if (v4) {
+      try {
+        for (const [tokenAddr, entry] of v4.launched) {
+          try {
+            await inspectV4(tokenAddr, entry);
+          } catch (e) {
+            log(`read v4 ${tokenAddr} failed: ${short(e)}`);
+          }
+        }
+        await inspectV4Platform();
+      } catch (e) {
+        log(`read v4 failed: ${short(e)}`);
+      }
+    }
   }
 
-  return { poll, isKeeper, launchKeeper, quickLaunchOwner, isQuickLaunchOwner, canDistribute, factory, actions, pending, done, rewardsTokens };
+  return { poll, isKeeper, launchKeeper, quickLaunchOwner, isQuickLaunchOwner, canDistribute, factory, actions, pending, done, rewardsTokens, v4 };
 }
 
 /**
@@ -450,6 +625,8 @@ async function main() {
   const keeper = await createKeeper(hre, {
     factoryAddress: d.presaleFactory,
     quickLaunchAddress: d.quickLaunch,
+    v4LauncherAddress: d.v4Launcher,
+    v4HookAddress: d.v4Hook,
     signer,
     log,
     retrySeconds: Number(process.env.RETRY_SECONDS || 60),
